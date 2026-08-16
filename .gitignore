@@ -23,7 +23,7 @@ __pycache__/
 .venv/
 ml/data/*
 runs/*
-ml/artifacts/*
+ml/artifacts/**/*.onnx
 
 # Logs and operating-system files
 *.log
