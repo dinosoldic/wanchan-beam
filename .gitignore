@@ -1,0 +1,29 @@
+# Dependencies
+node_modules/
+
+# Expo
+.expo/
+dist/
+web-build/
+expo-env.d.ts
+*.tsbuildinfo
+
+# Generated native projects
+**/android/
+**/ios/
+
+# Environment and local configuration
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+ml/data/*
+
+# Logs and operating-system files
+*.log
+.DS_Store
+Thumbs.db
