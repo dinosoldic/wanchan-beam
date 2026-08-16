@@ -1,10 +1,37 @@
-import { StyleSheet, Text, View } from "react-native";
+import { useRouter } from "expo-router";
+import { Image, Platform, Pressable, StyleSheet, Text } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 export default function HomeScreen() {
+  const router = useRouter();
+
   return (
-    <View style={styles.container}>
-      <Text>WanChan Beam</Text>
-    </View>
+    <SafeAreaView style={styles.container}>
+      <Image
+        source={require("../assets/logo.png")}
+        style={styles.logo}
+        resizeMode="contain"
+        accessibilityLabel="WanChan Beam logo"
+      />
+
+      <Pressable
+        onPress={() => {
+          if (Platform.OS === "web") {
+            (document.activeElement as HTMLElement | null)?.blur();
+          }
+
+          router.push("/camera");
+        }}
+        accessibilityRole="button"
+        accessibilityLabel="Start the camera"
+        style={({ pressed }) => [
+          styles.startButton,
+          pressed && styles.startButtonPressed,
+        ]}
+      >
+        <Text style={styles.startButtonText}>Start</Text>
+      </Pressable>
+    </SafeAreaView>
   );
 }
 
@@ -13,5 +40,32 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
+    backgroundColor: "#FFF8EE",
+    padding: 24,
+  },
+  logo: {
+    width: "70%",
+    maxWidth: 300,
+    maxHeight: 300,
+    marginBottom: 20,
+  },
+  startButton: {
+    width: "60%",
+    maxWidth: 300,
+    alignItems: "center",
+    borderRadius: 10,
+    backgroundColor: "#F3A58F",
+    paddingHorizontal: 40,
+    paddingVertical: 16,
+    marginBottom: 100,
+  },
+  startButtonPressed: {
+    opacity: 0.8,
+    backgroundColor: "#E89079",
+  },
+  startButtonText: {
+    color: "#FFF8EE",
+    fontSize: 18,
+    fontWeight: "700",
   },
 });
