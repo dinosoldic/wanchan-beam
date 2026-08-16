@@ -22,6 +22,8 @@ __pycache__/
 *.py[cod]
 .venv/
 ml/data/*
+runs/*
+ml/artifacts/*
 
 # Logs and operating-system files
 *.log
