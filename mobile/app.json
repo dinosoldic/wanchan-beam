@@ -24,6 +24,14 @@
         {
           "backgroundColor": "#208AEF"
         }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow WanChan Beam to use your camera to identify dogs.",
+          "recordAudioAndroid": false,
+          "barcodeScannerEnabled": false
+        }
       ]
     ],
     "experiments": {

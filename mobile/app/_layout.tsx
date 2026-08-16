@@ -37,7 +37,7 @@ export default function RootLayout() {
         options={{
           title: "",
           headerStyle: {
-            backgroundColor: "#FFF8EE",
+            backgroundColor: "#FFFFFF",
           },
           headerLeft: () => (
             <Pressable
