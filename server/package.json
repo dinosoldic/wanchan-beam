@@ -1,0 +1,21 @@
+{
+  "name": "wanchan-beam-server",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Hosted inference backend for WanChan Beam",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "fastify": "^5.12.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.1",
+    "tsx": "^4.23.12",
+    "typescript": "^7.0.2"
+  }
+}
