@@ -1,15 +1,26 @@
 import Fastify from "fastify";
 
 import { healthRoute } from "./api/index.js";
+import { loadDetector } from "./inference/index.js";
+
+const port = Number(process.env.PORT ?? 3000);
+const host = process.env.HOST ?? "0.0.0.0";
 
 const app = Fastify({
   logger: true,
 });
 
-await app.register(healthRoute);
+const detector = await loadDetector();
 
-const port = Number(process.env.PORT ?? 3000);
-const host = process.env.HOST ?? "0.0.0.0";
+app.log.info(
+  {
+    inputs: detector.inputNames,
+    outputs: detector.outputNames,
+  },
+  "Detector loaded",
+);
+
+await app.register(healthRoute);
 
 try {
   await app.listen({ port, host });
