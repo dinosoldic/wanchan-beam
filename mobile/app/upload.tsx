@@ -191,11 +191,7 @@ export default function UploadScreen() {
                     pressed && styles.iconButtonPressed,
                   ]}
                 >
-                  <Ionicons
-                    name="download-outline"
-                    size={27}
-                    color="#FFF8EE"
-                  />
+                  <Ionicons name="download-outline" size={27} color="#FFF8EE" />
                 </Pressable>
 
                 {Platform.OS !== "web" && (

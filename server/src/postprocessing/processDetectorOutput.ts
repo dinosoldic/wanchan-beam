@@ -1,6 +1,7 @@
 import type { Tensor } from "onnxruntime-node";
 
 import type { LetterboxTransform } from "../preprocessing/index.js";
+import { suppressDuplicateDetections } from "./suppressDuplicateDetections.js";
 
 const DOG_CLASS_ID = 16;
 const CONFIDENCE_THRESHOLD = 0.15;
@@ -124,5 +125,5 @@ export function processDetectorOutput(
     });
   }
 
-  return detections;
+  return suppressDuplicateDetections(detections);
 }
