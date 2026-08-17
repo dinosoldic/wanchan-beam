@@ -3,6 +3,8 @@ import { Platform } from "react-native";
 
 import type { DogDetectionResponse } from "@/types/detection";
 
+const DETECTION_TIMEOUT_MS = 10_000;
+
 function getApiUrl(): string {
   const apiUrl = process.env.EXPO_PUBLIC_API_URL;
 
@@ -37,18 +39,34 @@ export async function detectDogs(
 
   formData.append("image", imageFile, "camera-frame.jpg");
 
-  const response = await fetch(`${getApiUrl()}/detect`, {
-    method: "POST",
-    body: formData,
-  });
+  const abortController = new AbortController();
+  const timeoutId = setTimeout(() => {
+    abortController.abort();
+  }, DETECTION_TIMEOUT_MS);
 
-  if (!response.ok) {
-    const details = await response.text();
+  try {
+    const response = await fetch(`${getApiUrl()}/detect`, {
+      method: "POST",
+      body: formData,
+      signal: abortController.signal,
+    });
 
-    throw new Error(
-      `Detection request failed (${response.status}): ${details}`,
-    );
+    if (!response.ok) {
+      const details = await response.text();
+
+      throw new Error(
+        `Detection request failed (${response.status}): ${details}`,
+      );
+    }
+
+    return (await response.json()) as DogDetectionResponse;
+  } catch (error) {
+    if (abortController.signal.aborted) {
+      throw new Error("Detection request timed out.");
+    }
+
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
   }
-
-  return (await response.json()) as DogDetectionResponse;
 }

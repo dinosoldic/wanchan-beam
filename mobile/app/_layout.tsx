@@ -76,6 +76,28 @@ export default function RootLayout() {
           ),
         }}
       />
+      <Stack.Screen
+        name="staticScan"
+        options={{
+          title: "",
+          headerStyle: {
+            backgroundColor: "#FFFCF7",
+          },
+          headerLeft: () => (
+            <Pressable
+              onPress={() => router.dismissTo("/camera")}
+              accessibilityRole="button"
+              accessibilityLabel="Go back"
+              style={({ pressed }) => [
+                styles.backButton,
+                pressed && styles.backButtonPressed,
+              ]}
+            >
+              <View style={styles.backArrow} />
+            </Pressable>
+          ),
+        }}
+      />
     </Stack>
   );
 }

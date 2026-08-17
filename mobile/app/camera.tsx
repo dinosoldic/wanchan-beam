@@ -1,39 +1,57 @@
 import { useRef, useState } from "react";
 import { useCameraPermissions, CameraView } from "expo-camera";
+import * as FileSystem from "expo-file-system/legacy";
+import { useRouter } from "expo-router";
 import { Image, Pressable, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { detectDogs } from "@/services/RemoteInferenceService";
+import { setCapturedPhoto } from "@/features/camera/capturedPhotoStore";
 
 export default function CameraScreen() {
+  const router = useRouter();
   const [permission, requestPermission] = useCameraPermissions();
   const cameraRef = useRef<CameraView>(null);
   const [isCameraReady, setIsCameraReady] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
-  const [scanStatus, setScanStatus] = useState("Camera starting...");
 
-  async function handleScan() {
+  async function handleTakePhoto() {
     if (!cameraRef.current || !isCameraReady || isScanning) {
       return;
     }
 
     setIsScanning(true);
-    setScanStatus("Scanning...");
 
     try {
       const photo = await cameraRef.current.takePictureAsync({
-        quality: 0.8,
+        quality: 0.9,
       });
 
-      const result = await detectDogs(photo.uri);
-      const dogCount = result.detections.length;
+      if (!FileSystem.documentDirectory) {
+        throw new Error("The app storage is unavailable.");
+      }
 
-      console.log("Detection result:", result);
+      const storedPhotoUri = `${FileSystem.documentDirectory}wanchan-capture-${Date.now()}.jpg`;
 
-      setScanStatus(`${dogCount} ${dogCount === 1 ? "dog" : "dogs"} detected`);
+      await FileSystem.copyAsync({
+        from: photo.uri,
+        to: storedPhotoUri,
+      });
+
+      const storedPhotoInfo = await FileSystem.getInfoAsync(storedPhotoUri);
+
+      if (!storedPhotoInfo.exists) {
+        throw new Error("The captured photo could not be stored.");
+      }
+
+      setCapturedPhoto({
+        uri: storedPhotoUri,
+        width: photo.width,
+        height: photo.height,
+      });
+
+      router.push("/staticScan");
     } catch (error) {
-      console.error("Detection failed:", error);
-      setScanStatus("Scan failed");
+      console.error("Photo capture failed:", error);
     } finally {
       setIsScanning(false);
     }
@@ -91,7 +109,6 @@ export default function CameraScreen() {
           facing="back"
           onCameraReady={() => {
             setIsCameraReady(true);
-            setScanStatus("Ready to scan");
           }}
         />
         <View style={[styles.corner, styles.topLeft]} />
@@ -99,13 +116,11 @@ export default function CameraScreen() {
         <View style={[styles.corner, styles.bottomLeft]} />
         <View style={[styles.corner, styles.bottomRight]} />
         <View style={styles.scanControls}>
-          <Text style={styles.scanStatus}>{scanStatus}</Text>
-
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Scan for dogs"
+            accessibilityLabel="Take a photo"
             disabled={!isCameraReady || isScanning}
-            onPress={handleScan}
+            onPress={handleTakePhoto}
             style={({ pressed }) => [
               styles.scanButton,
               (!isCameraReady || isScanning) && styles.scanButtonDisabled,
@@ -113,7 +128,7 @@ export default function CameraScreen() {
             ]}
           >
             <Text style={styles.scanButtonText}>
-              {isScanning ? "Scanning..." : "Scan"}
+              {isScanning ? "Taking photo..." : "Take Photo"}
             </Text>
           </Pressable>
         </View>
@@ -267,20 +282,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 10,
   },
-  scanStatus: {
-    color: "#FFF8EE",
-    fontSize: 14,
-    fontWeight: "600",
-    backgroundColor: "rgba(6, 38, 83, 0.75)",
-    paddingHorizontal: 14,
-    paddingVertical: 7,
-    borderRadius: 999,
-  },
   scanButton: {
     minWidth: 120,
     alignItems: "center",
     backgroundColor: "#F3A58F",
-    borderRadius: 999,
+    borderRadius: 20,
     paddingHorizontal: 24,
     paddingVertical: 14,
   },
@@ -291,7 +297,7 @@ const styles = StyleSheet.create({
     transform: [{ scale: 0.96 }],
   },
   scanButtonText: {
-    color: "#062653",
+    color: "#FFF8EE",
     fontSize: 16,
     fontWeight: "700",
   },
