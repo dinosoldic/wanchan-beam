@@ -1,5 +1,6 @@
 import multipart from "@fastify/multipart";
 import Fastify, { type FastifyInstance } from "fastify";
+import { readFile } from "node:fs/promises";
 
 import { detectRoute, healthRoute } from "./api/index.js";
 import { loadDetector } from "./inference/index.js";
@@ -8,12 +9,36 @@ export interface BuildAppOptions {
   logger?: boolean;
 }
 
+const sharedSchemaUrls = [
+  new URL(
+    "../../shared/schemas/dog-detection-response.schema.json",
+    import.meta.url,
+  ),
+  new URL("../../shared/schemas/error-response.schema.json", import.meta.url),
+];
+
+async function loadSharedSchemas(): Promise<Record<string, unknown>[]> {
+  return Promise.all(
+    sharedSchemaUrls.map(async (schemaUrl) => {
+      const contents = await readFile(schemaUrl, "utf8");
+
+      return JSON.parse(contents) as Record<string, unknown>;
+    }),
+  );
+}
+
 export async function buildApp(
   options: BuildAppOptions = {},
 ): Promise<FastifyInstance> {
   const app = Fastify({
     logger: options.logger ?? true,
   });
+
+  const sharedSchemas = await loadSharedSchemas();
+
+  for (const schema of sharedSchemas) {
+    app.addSchema(schema);
+  }
 
   const detector = await loadDetector();
 
