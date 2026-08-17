@@ -156,74 +156,86 @@ export default function UploadScreen() {
         )}
       </Pressable>
 
-      <View style={styles.errorSlot}>
-        {scanError && <Text style={styles.errorText}>{scanError}</Text>}
-      </View>
+      <View style={styles.footer}>
+        <View style={styles.messageSlot}>
+          {scanError ? (
+            <Text style={styles.errorText}>{scanError}</Text>
+          ) : detectionResult?.detections.length === 0 ? (
+            <Text style={styles.statusText}>No dogs detected</Text>
+          ) : null}
+        </View>
 
-      {imageUri &&
-        (detectionResult ? (
-          <View style={styles.completedActions}>
-            <Pressable
-              onPress={pickImage}
-              accessibilityRole="button"
-              accessibilityLabel="Choose a new photo"
-              style={({ pressed }) => [
-                styles.buttonBase,
-                styles.newUploadButton,
-                pressed && styles.buttonPressed,
-              ]}
-            >
-              <Text style={styles.buttonText}>New Upload</Text>
-            </Pressable>
+        <View style={styles.actionSlot}>
+          {imageUri &&
+            (detectionResult ? (
+              <View style={styles.completedActions}>
+                <Pressable
+                  onPress={pickImage}
+                  accessibilityRole="button"
+                  accessibilityLabel="Choose a new photo"
+                  style={({ pressed }) => [
+                    styles.buttonBase,
+                    styles.newUploadButton,
+                    pressed && styles.buttonPressed,
+                  ]}
+                >
+                  <Text style={styles.buttonText}>New Upload</Text>
+                </Pressable>
 
-            <Pressable
-              onPress={downloadResult}
-              accessibilityRole="button"
-              accessibilityLabel="Save scanned image"
-              style={({ pressed }) => [
-                styles.iconButton,
-                pressed && styles.iconButtonPressed,
-              ]}
-            >
-              <Ionicons name="download-outline" size={27} color="#FFF8EE" />
-            </Pressable>
+                <Pressable
+                  onPress={downloadResult}
+                  accessibilityRole="button"
+                  accessibilityLabel="Save scanned image"
+                  style={({ pressed }) => [
+                    styles.iconButton,
+                    pressed && styles.iconButtonPressed,
+                  ]}
+                >
+                  <Ionicons
+                    name="download-outline"
+                    size={27}
+                    color="#FFF8EE"
+                  />
+                </Pressable>
 
-            {Platform.OS !== "web" && (
+                {Platform.OS !== "web" && (
+                  <Pressable
+                    onPress={shareResult}
+                    accessibilityRole="button"
+                    accessibilityLabel="Share scanned image"
+                    style={({ pressed }) => [
+                      styles.iconButton,
+                      pressed && styles.iconButtonPressed,
+                    ]}
+                  >
+                    <Ionicons
+                      name="paper-plane-outline"
+                      size={25}
+                      color="#FFF8EE"
+                    />
+                  </Pressable>
+                )}
+              </View>
+            ) : scanError ? null : (
               <Pressable
-                onPress={shareResult}
+                disabled={isScanning}
+                onPress={scanImage}
                 accessibilityRole="button"
-                accessibilityLabel="Share scanned image"
+                accessibilityLabel="Scan the selected photo"
                 style={({ pressed }) => [
-                  styles.iconButton,
-                  pressed && styles.iconButtonPressed,
+                  styles.buttonBase,
+                  styles.scanButton,
+                  isScanning && styles.buttonDisabled,
+                  pressed && styles.buttonPressed,
                 ]}
               >
-                <Ionicons
-                  name="paper-plane-outline"
-                  size={25}
-                  color="#FFF8EE"
-                />
+                <Text style={styles.buttonText}>
+                  {isScanning ? "Scanning..." : "Scan Photo"}
+                </Text>
               </Pressable>
-            )}
-          </View>
-        ) : scanError ? null : (
-          <Pressable
-            disabled={isScanning}
-            onPress={scanImage}
-            accessibilityRole="button"
-            accessibilityLabel="Scan the selected photo"
-            style={({ pressed }) => [
-              styles.buttonBase,
-              styles.scanButton,
-              isScanning && styles.buttonDisabled,
-              pressed && styles.buttonPressed,
-            ]}
-          >
-            <Text style={styles.buttonText}>
-              {isScanning ? "Scanning..." : "Scan Photo"}
-            </Text>
-          </Pressable>
-        ))}
+            ))}
+        </View>
+      </View>
     </SafeAreaView>
   );
 }
@@ -324,15 +336,32 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     backgroundColor: "#5C8FB8",
   },
-  errorSlot: {
+  footer: {
+    width: "100%",
+    height: 102,
+    alignItems: "center",
+    gap: 20,
+    flexShrink: 0,
+  },
+  messageSlot: {
     width: "100%",
     height: 28,
     alignItems: "center",
     justifyContent: "center",
   },
+  actionSlot: {
+    width: "100%",
+    height: 54,
+    alignItems: "center",
+  },
   errorText: {
     color: "#B95C4A",
-    fontSize: 14,
+    fontSize: 16,
+    textAlign: "center",
+  },
+  statusText: {
+    color: "#062653",
+    fontSize: 24,
     textAlign: "center",
   },
   iconButtonPressed: {

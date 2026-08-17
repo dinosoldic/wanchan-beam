@@ -178,51 +178,64 @@ export default function StaticScanScreen() {
         )}
       </View>
 
-      <View style={styles.errorSlot}>
-        {scanError && <Text style={styles.errorText}>{scanError}</Text>}
-      </View>
-      {detectionResult && (
-        <View style={styles.completedActions}>
-          <Pressable
-            onPress={handleRetake}
-            accessibilityRole="button"
-            accessibilityLabel="Retake photo"
-            style={({ pressed }) => [
-              styles.buttonBase,
-              styles.retakeButton,
-              pressed && styles.buttonPressed,
-            ]}
-          >
-            <Text style={styles.buttonText}>Retake</Text>
-          </Pressable>
+      <View style={styles.footer}>
+        <View style={styles.messageSlot}>
+          {scanError ? (
+            <Text style={styles.errorText}>{scanError}</Text>
+          ) : detectionResult?.detections.length === 0 ? (
+            <Text style={styles.statusText}>No dogs detected</Text>
+          ) : null}
+        </View>
 
-          <Pressable
-            onPress={downloadResult}
-            accessibilityRole="button"
-            accessibilityLabel="Save scanned image"
-            style={({ pressed }) => [
-              styles.iconButton,
-              pressed && styles.iconButtonPressed,
-            ]}
-          >
-            <Ionicons name="download-outline" size={27} color="#FFF8EE" />
-          </Pressable>
+        <View style={styles.actionSlot}>
+          {detectionResult && (
+            <View style={styles.completedActions}>
+              <Pressable
+                onPress={handleRetake}
+                accessibilityRole="button"
+                accessibilityLabel="Retake photo"
+                style={({ pressed }) => [
+                  styles.buttonBase,
+                  styles.retakeButton,
+                  pressed && styles.buttonPressed,
+                ]}
+              >
+                <Text style={styles.buttonText}>Retake</Text>
+              </Pressable>
 
-          {Platform.OS !== "web" && (
-            <Pressable
-              onPress={shareResult}
-              accessibilityRole="button"
-              accessibilityLabel="Share scanned image"
-              style={({ pressed }) => [
-                styles.iconButton,
-                pressed && styles.iconButtonPressed,
-              ]}
-            >
-              <Ionicons name="paper-plane-outline" size={25} color="#FFF8EE" />
-            </Pressable>
+              <Pressable
+                onPress={downloadResult}
+                accessibilityRole="button"
+                accessibilityLabel="Save scanned image"
+                style={({ pressed }) => [
+                  styles.iconButton,
+                  pressed && styles.iconButtonPressed,
+                ]}
+              >
+                <Ionicons name="download-outline" size={27} color="#FFF8EE" />
+              </Pressable>
+
+              {Platform.OS !== "web" && (
+                <Pressable
+                  onPress={shareResult}
+                  accessibilityRole="button"
+                  accessibilityLabel="Share scanned image"
+                  style={({ pressed }) => [
+                    styles.iconButton,
+                    pressed && styles.iconButtonPressed,
+                  ]}
+                >
+                  <Ionicons
+                    name="paper-plane-outline"
+                    size={25}
+                    color="#FFF8EE"
+                  />
+                </Pressable>
+              )}
+            </View>
           )}
         </View>
-      )}
+      </View>
     </SafeAreaView>
   );
 }
@@ -254,15 +267,27 @@ const styles = StyleSheet.create({
     position: "absolute",
     overflow: "hidden",
   },
-  errorSlot: {
+  footer: {
     width: "100%",
-    height: 28,
+    height: 102,
+    alignItems: "center",
+    gap: 20,
+    flexShrink: 0,
+  },
+  messageSlot: {
+    width: "100%",
+    height: 40,
     alignItems: "center",
     justifyContent: "center",
   },
   errorText: {
     color: "#B95C4A",
-    fontSize: 14,
+    fontSize: 16,
+    textAlign: "center",
+  },
+  statusText: {
+    color: "#062653",
+    fontSize: 24,
     textAlign: "center",
   },
   resultCanvas: {
@@ -277,6 +302,11 @@ const styles = StyleSheet.create({
     maxWidth: 300,
     flexDirection: "row",
     gap: 10,
+  },
+  actionSlot: {
+    width: "100%",
+    height: 54,
+    alignItems: "center",
   },
   buttonBase: {
     height: 54,
