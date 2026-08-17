@@ -1,6 +1,7 @@
+import multipart from "@fastify/multipart";
 import Fastify from "fastify";
 
-import { healthRoute } from "./api/index.js";
+import { healthRoute, detectRoute } from "./api/index.js";
 import { loadDetector } from "./inference/index.js";
 
 const port = Number(process.env.PORT ?? 3000);
@@ -20,7 +21,16 @@ app.log.info(
   "Detector loaded",
 );
 
+await app.register(multipart, {
+  limits: {
+    files: 1,
+    fileSize: 10 * 1024 * 1024,
+    parts: 1,
+  },
+});
+
 await app.register(healthRoute);
+await app.register(detectRoute);
 
 try {
   await app.listen({ port, host });

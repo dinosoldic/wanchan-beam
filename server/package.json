@@ -12,6 +12,7 @@
     "smoke:detector": "tsx tests/detectorTest.ts"
   },
   "dependencies": {
+    "@fastify/multipart": "^10.1.1",
     "fastify": "^5.12.0",
     "onnxruntime-node": "^1.27.0",
     "sharp": "^0.35.3"

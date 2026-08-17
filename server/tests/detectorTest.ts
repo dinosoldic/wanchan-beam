@@ -1,41 +1,33 @@
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
-import { loadDetector } from "../src/inference/index.js";
-import { processDetectorOutput } from "../src/postprocessing/index.js";
-import { preprocessDetectorImage } from "../src/preprocessing/index.js";
+import { detectDogs } from "../src/inference/index.js";
+
+const EXPECTED_DOG_COUNT = 6;
 
 const samplePath = fileURLToPath(
   new URL("../../ml/data/samples/test-dogs.png", import.meta.url),
 );
 
 const image = await readFile(samplePath);
-const { tensor, transform } = await preprocessDetectorImage(image);
-const detector = await loadDetector();
 
-console.time("Inference time");
+console.time("End-to-end detection time");
 
-const outputs = await detector.run({
-  images: tensor,
-});
+const result = await detectDogs(image);
 
-console.timeEnd("Inference time");
+console.timeEnd("End-to-end detection time");
 
-const output = outputs.output0;
-
-if (!output) {
-  throw new Error("Detector did not return output0");
+if (result.detections.length !== EXPECTED_DOG_COUNT) {
+  throw new Error(
+    `Expected ${EXPECTED_DOG_COUNT} dogs, detected ${result.detections.length}`,
+  );
 }
 
-const detectedDogs = processDetectorOutput(output, transform);
-
-console.log("Input dimensions:", tensor.dims);
-console.log("Output dimensions:", output.dims);
-console.log("Letterbox transform:", transform);
-console.log("Detected dogs:", detectedDogs.length);
+console.log("Original image:", result.image);
+console.log("Detected dogs:", result.detections.length);
 
 console.table(
-  detectedDogs.map(({ confidence, box }) => ({
+  result.detections.map(({ confidence, box }) => ({
     confidence: confidence.toFixed(3),
     x1: box.x1.toFixed(1),
     y1: box.y1.toFixed(1),
