@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync } from "fastify";
 
 import { detectDogs } from "../inference/index.js";
+import { InvalidImageError } from "../preprocessing/index.js";
 
 const SUPPORTED_IMAGE_TYPES = new Set([
   "image/jpeg",
@@ -32,9 +33,19 @@ const detectRoute: FastifyPluginAsync = async (app) => {
       });
     }
 
-    const result = await detectDogs(imageBuffer);
+    try {
+      const result = await detectDogs(imageBuffer);
 
-    return reply.code(200).send(result);
+      return reply.code(200).send(result);
+    } catch (error) {
+      if (error instanceof InvalidImageError) {
+        return reply.code(422).send({
+          error: error.message,
+        });
+      }
+
+      throw error;
+    }
   });
 };
 

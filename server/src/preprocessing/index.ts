@@ -10,3 +10,5 @@ export {
   preprocessDetectorImage,
   type PreprocessedDetectorImage,
 } from "./preprocessDetectorImage.js";
+
+export { InvalidImageError } from "./InvalidImageError.js";
