@@ -1,5 +1,5 @@
 import { fetch } from "expo/fetch";
-import { File } from "expo-file-system";
+import { Platform } from "react-native";
 
 import type { DogDetectionResponse } from "@/types/detection";
 
@@ -13,11 +13,27 @@ function getApiUrl(): string {
   return apiUrl.replace(/\/+$/, "");
 }
 
+async function getImageFile(imageUri: string): Promise<Blob> {
+  if (Platform.OS === "web") {
+    const response = await fetch(imageUri);
+
+    if (!response.ok) {
+      throw new Error("Could not read the selected image");
+    }
+
+    return response.blob();
+  }
+
+  const { File } = await import("expo-file-system");
+
+  return new File(imageUri);
+}
+
 export async function detectDogs(
   imageUri: string,
 ): Promise<DogDetectionResponse> {
   const formData = new FormData();
-  const imageFile = new File(imageUri);
+  const imageFile = await getImageFile(imageUri);
 
   formData.append("image", imageFile, "camera-frame.jpg");
 

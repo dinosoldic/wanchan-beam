@@ -37,7 +37,29 @@ export default function RootLayout() {
         options={{
           title: "",
           headerStyle: {
-            backgroundColor: "#FFFFFF",
+            backgroundColor: "#FFFCF7",
+          },
+          headerLeft: () => (
+            <Pressable
+              onPress={() => router.dismissTo("/")}
+              accessibilityRole="button"
+              accessibilityLabel="Go back"
+              style={({ pressed }) => [
+                styles.backButton,
+                pressed && styles.backButtonPressed,
+              ]}
+            >
+              <View style={styles.backArrow} />
+            </Pressable>
+          ),
+        }}
+      />
+      <Stack.Screen
+        name="upload"
+        options={{
+          title: "",
+          headerStyle: {
+            backgroundColor: "#FFFCF7",
           },
           headerLeft: () => (
             <Pressable

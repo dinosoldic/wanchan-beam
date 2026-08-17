@@ -25,11 +25,28 @@ export default function HomeScreen() {
         accessibilityRole="button"
         accessibilityLabel="Start the camera"
         style={({ pressed }) => [
-          styles.startButton,
-          pressed && styles.startButtonPressed,
+          styles.actionButton,
+          pressed && styles.actionButtonPressed,
         ]}
       >
-        <Text style={styles.startButtonText}>Start</Text>
+        <Text style={styles.actionButtonText}>Live Scan</Text>
+      </Pressable>
+      <Pressable
+        onPress={() => {
+          if (Platform.OS === "web") {
+            (document.activeElement as HTMLElement | null)?.blur();
+          }
+
+          router.push("/upload");
+        }}
+        accessibilityRole="button"
+        accessibilityLabel="Upload Image"
+        style={({ pressed }) => [
+          styles.actionButton,
+          pressed && styles.actionButtonPressed,
+        ]}
+      >
+        <Text style={styles.actionButtonText}>Upload Photo</Text>
       </Pressable>
     </SafeAreaView>
   );
@@ -49,7 +66,7 @@ const styles = StyleSheet.create({
     maxHeight: 300,
     marginBottom: 20,
   },
-  startButton: {
+  actionButton: {
     width: "60%",
     maxWidth: 300,
     alignItems: "center",
@@ -57,13 +74,13 @@ const styles = StyleSheet.create({
     backgroundColor: "#F3A58F",
     paddingHorizontal: 40,
     paddingVertical: 16,
-    marginBottom: 100,
+    marginBottom: 16,
   },
-  startButtonPressed: {
+  actionButtonPressed: {
     opacity: 0.8,
     backgroundColor: "#E89079",
   },
-  startButtonText: {
+  actionButtonText: {
     color: "#FFF8EE",
     fontSize: 18,
     fontWeight: "700",
