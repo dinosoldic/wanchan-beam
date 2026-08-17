@@ -1,10 +1,18 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
+import { Ionicons } from "@expo/vector-icons";
+import domToImage from "dom-to-image";
 import * as ImagePicker from "expo-image-picker";
+import * as MediaLibrary from "expo-media-library/legacy";
+import { isRunningInExpoGo } from "expo";
+import * as Sharing from "expo-sharing";
+import { captureRef } from "react-native-view-shot";
 import { LinearGradient } from "expo-linear-gradient";
 import {
+  Alert,
   Animated,
   Easing,
   Image,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -14,6 +22,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { detectDogs } from "@/services/RemoteInferenceService";
 import type { DogDetectionResponse } from "@/types/detection";
+import { DetectionOverlay } from "@/features/results/DetectionOverlay";
 
 const MINIMUM_SCAN_DURATION_MS = 2000;
 const SCAN_TRAVEL_DURATION_MS = 900;
@@ -70,6 +79,7 @@ export default function UploadScreen() {
     height: 0,
   });
   const [scanProgress] = useState(() => new Animated.Value(0));
+  const resultRef = useRef<View>(null);
 
   useEffect(() => {
     if (!isScanning) {
@@ -158,7 +168,98 @@ export default function UploadScreen() {
     }
   }
 
-  const detectedDogCount = detectionResult?.detections.length ?? 0;
+  async function downloadResult() {
+    if (!resultRef.current || !detectionResult) {
+      return;
+    }
+
+    setScanError(null);
+
+    try {
+      if (Platform.OS === "web") {
+        const dataUrl = await domToImage.toPng(
+          resultRef.current as unknown as Node,
+          {
+            quality: 1,
+          },
+        );
+
+        const downloadLink = document.createElement("a");
+
+        downloadLink.download = `wanchan-beam-${Date.now()}.png`;
+        downloadLink.href = dataUrl;
+
+        document.body.appendChild(downloadLink);
+        downloadLink.click();
+        downloadLink.remove();
+
+        return;
+      }
+
+      if (isRunningInExpoGo()) {
+        setScanError("Photo access is required to save the scanned image.");
+        return;
+      }
+
+      const localUri = await captureRef(resultRef, {
+        format: "png",
+        quality: 1,
+        result: "tmpfile",
+      });
+
+      const permission = await MediaLibrary.requestPermissionsAsync(true, [
+        "photo",
+      ]);
+
+      if (!permission.granted) {
+        setScanError("Photo access is required to save the scanned image.");
+        return;
+      }
+
+      await MediaLibrary.saveToLibraryAsync(localUri);
+
+      Alert.alert(
+        "Image saved",
+        "The scanned image was saved to your photo library.",
+      );
+    } catch (error) {
+      console.error("Download failed:", error);
+      setScanError("Could not save the scanned image.");
+    }
+  }
+
+  async function shareResult() {
+    if (Platform.OS === "web" || !resultRef.current || !detectionResult) {
+      return;
+    }
+
+    setScanError(null);
+
+    try {
+      const sharingAvailable = await Sharing.isAvailableAsync();
+
+      if (!sharingAvailable) {
+        setScanError("Sharing is not available on this device.");
+        return;
+      }
+
+      const localUri = await captureRef(resultRef, {
+        format: "png",
+        quality: 1,
+        result: "tmpfile",
+      });
+
+      await Sharing.shareAsync(localUri, {
+        mimeType: "image/png",
+        dialogTitle: "Share scanned image",
+        UTI: "public.png",
+      });
+    } catch (error) {
+      console.error("Sharing failed:", error);
+      setScanError("Could not share the scanned image.");
+    }
+  }
+
   const containedImageLayout = getContainedImageLayout(previewSize, imageSize);
   const scanLinePosition = scanProgress.interpolate({
     inputRange: [0, 1],
@@ -185,72 +286,76 @@ export default function UploadScreen() {
           pressed && styles.previewAreaPressed,
         ]}
       >
-        {imageUri ? (
-          <Image
-            source={{ uri: imageUri }}
-            style={styles.previewImage}
-            resizeMode="contain"
-            accessibilityLabel="Selected photo"
-          />
+        {imageUri && containedImageLayout ? (
+          <View style={[styles.resultPosition, containedImageLayout]}>
+            <View
+              ref={resultRef}
+              collapsable={false}
+              style={styles.resultCanvas}
+            >
+              <Image
+                source={{ uri: imageUri }}
+                style={styles.previewImage}
+                resizeMode="stretch"
+                accessibilityLabel="Selected photo"
+              />
+
+              {detectionResult && (
+                <DetectionOverlay
+                  result={detectionResult}
+                  displayWidth={containedImageLayout.width}
+                  displayHeight={containedImageLayout.height}
+                />
+              )}
+
+              {isScanning && (
+                <View style={styles.scanningOverlay} pointerEvents="none">
+                  <Animated.View
+                    style={[
+                      styles.scanLine,
+                      {
+                        transform: [{ translateY: scanLinePosition }],
+                      },
+                    ]}
+                  >
+                    <LinearGradient
+                      colors={[
+                        "rgba(92, 143, 184, 0)",
+                        "rgba(92, 143, 184, 0.12)",
+                        "rgba(92, 143, 184, 0.34)",
+                        "rgba(92, 143, 184, 0.12)",
+                        "rgba(92, 143, 184, 0)",
+                      ]}
+                      locations={[0, 0.25, 0.5, 0.75, 1]}
+                      start={{ x: 0.5, y: 0 }}
+                      end={{ x: 0.5, y: 1 }}
+                      style={styles.scanBandGradient}
+                    />
+
+                    <LinearGradient
+                      colors={[
+                        "rgba(92, 143, 184, 0)",
+                        "rgba(92, 143, 184, 0.75)",
+                        "rgba(92, 143, 184, 1)",
+                        "rgba(92, 143, 184, 0.75)",
+                        "rgba(92, 143, 184, 0)",
+                      ]}
+                      locations={[0, 0.2, 0.5, 0.8, 1]}
+                      start={{ x: 0, y: 0.5 }}
+                      end={{ x: 1, y: 0.5 }}
+                      style={styles.scanBeam}
+                    />
+                  </Animated.View>
+                </View>
+              )}
+            </View>
+          </View>
         ) : (
           <View style={styles.placeholder}>
             <Text style={styles.placeholderTitle}>Choose a photo</Text>
             <Text style={styles.placeholderMessage}>
               Tap here to select an image from your device
             </Text>
-          </View>
-        )}
-
-        {detectionResult && (
-          <View style={styles.resultBadge} pointerEvents="none">
-            <Text style={styles.resultBadgeText}>
-              {detectedDogCount} {detectedDogCount === 1 ? "dog" : "dogs"}{" "}
-              detected
-            </Text>
-          </View>
-        )}
-
-        {isScanning && containedImageLayout && (
-          <View
-            style={[styles.scanningOverlay, containedImageLayout]}
-            pointerEvents="none"
-          >
-            <Animated.View
-              style={[
-                styles.scanLine,
-                {
-                  transform: [{ translateY: scanLinePosition }],
-                },
-              ]}
-            >
-              <LinearGradient
-                colors={[
-                  "rgba(92, 143, 184, 0)",
-                  "rgba(92, 143, 184, 0.12)",
-                  "rgba(92, 143, 184, 0.34)",
-                  "rgba(92, 143, 184, 0.12)",
-                  "rgba(92, 143, 184, 0)",
-                ]}
-                locations={[0, 0.25, 0.5, 0.75, 1]}
-                start={{ x: 0.5, y: 0 }}
-                end={{ x: 0.5, y: 1 }}
-                style={styles.scanBandGradient}
-              />
-
-              <LinearGradient
-                colors={[
-                  "rgba(92, 143, 184, 0)",
-                  "rgba(92, 143, 184, 0.75)",
-                  "rgba(92, 143, 184, 1)",
-                  "rgba(92, 143, 184, 0.75)",
-                  "rgba(92, 143, 184, 0)",
-                ]}
-                locations={[0, 0.2, 0.5, 0.8, 1]}
-                start={{ x: 0, y: 0.5 }}
-                end={{ x: 1, y: 0.5 }}
-                style={styles.scanBeam}
-              />
-            </Animated.View>
           </View>
         )}
       </Pressable>
@@ -274,15 +379,34 @@ export default function UploadScreen() {
             </Pressable>
 
             <Pressable
-              disabled
+              onPress={downloadResult}
               accessibilityRole="button"
-              accessibilityLabel="Download scanned image"
-              accessibilityState={{ disabled: true }}
-              style={[styles.downloadButton, styles.downloadButtonDisabled]}
+              accessibilityLabel="Save scanned image"
+              style={({ pressed }) => [
+                styles.downloadButton,
+                pressed && styles.downloadButtonPressed,
+              ]}
             >
-              <Text style={styles.downloadIcon}>{"\u2193"}</Text>
-              <View style={styles.downloadLine} />
+              <Ionicons name="download-outline" size={27} color="#FFF8EE" />
             </Pressable>
+
+            {Platform.OS !== "web" && (
+              <Pressable
+                onPress={shareResult}
+                accessibilityRole="button"
+                accessibilityLabel="Share scanned image"
+                style={({ pressed }) => [
+                  styles.shareButton,
+                  pressed && styles.downloadButtonPressed,
+                ]}
+              >
+                <Ionicons
+                  name="paper-plane-outline"
+                  size={25}
+                  color="#FFF8EE"
+                />
+              </Pressable>
+            )}
           </View>
         ) : (
           <Pressable
@@ -336,6 +460,16 @@ const styles = StyleSheet.create({
     width: "100%",
     height: "100%",
   },
+  resultPosition: {
+    position: "absolute",
+    overflow: "hidden",
+  },
+  resultCanvas: {
+    position: "relative",
+    width: "100%",
+    height: "100%",
+    overflow: "hidden",
+  },
   placeholder: {
     alignItems: "center",
     paddingHorizontal: 32,
@@ -364,7 +498,7 @@ const styles = StyleSheet.create({
     maxWidth: 300,
   },
   completedActions: {
-    width: "70%",
+    width: "90%",
     maxWidth: 300,
     flexDirection: "row",
     gap: 10,
@@ -392,37 +526,20 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     backgroundColor: "#5C8FB8",
   },
-  downloadButtonDisabled: {
-    opacity: 0.45,
-  },
-  downloadIcon: {
-    color: "#FFF8EE",
-    fontSize: 25,
-    fontWeight: "700",
-    lineHeight: 25,
-  },
-  downloadLine: {
-    width: 18,
-    height: 2,
-    borderRadius: 999,
-    backgroundColor: "#FFF8EE",
-  },
-  resultBadge: {
-    position: "absolute",
-    bottom: 16,
-    alignSelf: "center",
-    borderRadius: 999,
-    backgroundColor: "rgba(6, 38, 83, 0.82)",
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-  },
-  resultBadgeText: {
-    color: "#FFF8EE",
-    fontSize: 14,
-    fontWeight: "700",
+  shareButton: {
+    width: 54,
+    height: 54,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 10,
+    backgroundColor: "#5C8FB8",
   },
   scanningOverlay: {
     position: "absolute",
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
     overflow: "hidden",
   },
   scanLine: {
@@ -457,5 +574,8 @@ const styles = StyleSheet.create({
     color: "#B95C4A",
     fontSize: 14,
     marginBottom: 10,
+  },
+  downloadButtonPressed: {
+    opacity: 0.8,
   },
 });
