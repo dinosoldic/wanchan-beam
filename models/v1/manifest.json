@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "packageVersion": "1.0.0",
+  "detector": {
+    "name": "YOLO26s",
+    "task": "object-detection",
+    "format": "onnx",
+    "artifact": "detector.onnx",
+    "sha256": "9d0192aadce44f2883123623b25da08cbd2089f13bfffd374a28614e57dd0e80",
+    "exporter": {
+      "name": "ultralytics",
+      "version": "8.4.120"
+    },
+    "preprocessing": "preprocessing.json",
+    "output": {
+      "name": "output0",
+      "shape": [1, 300, 6],
+      "fields": ["x1", "y1", "x2", "y2", "confidence", "classId"],
+      "boxFormat": "xyxy",
+      "coordinateSpace": "inputPixels",
+      "maximumDetections": 300,
+      "requiresNms": false
+    },
+    "selection": {
+      "classFilter": [
+        {
+          "id": 16,
+          "name": "dog"
+        }
+      ],
+      "confidenceThreshold": 0.15
+    }
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "detector": {
+    "inputName": "images",
+    "inputSize": {
+      "width": 960,
+      "height": 960
+    },
+    "layout": "NCHW",
+    "dataType": "float32",
+    "colorSpace": "RGB",
+    "resize": {
+      "mode": "letterbox",
+      "preserveAspectRatio": true,
+      "center": true,
+      "paddingValue": [114, 114, 114],
+      "stride": 32
+    },
+    "normalization": {
+      "operation": "divide",
+      "value": 255,
+      "outputRange": [0, 1]
+    }
+  }
+}
