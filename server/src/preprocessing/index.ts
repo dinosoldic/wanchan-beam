@@ -1,0 +1,12 @@
+export { createDetectorTensor } from "./createDetectorTensor.js";
+
+export {
+  letterboxImage,
+  type LetterboxedImage,
+  type LetterboxTransform,
+} from "./letterboxImage.js";
+
+export {
+  preprocessDetectorImage,
+  type PreprocessedDetectorImage,
+} from "./preprocessDetectorImage.js";
