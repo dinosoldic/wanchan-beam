@@ -24,6 +24,7 @@ __pycache__/
 ml/data/*
 runs/*
 ml/artifacts/**/*.onnx
+ml/artifacts/classifier/checkpoints/*
 
 # Logs and operating-system files
 *.log

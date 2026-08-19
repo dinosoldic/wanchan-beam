@@ -1,4 +1,5 @@
 from collections.abc import Iterable
+from pathlib import Path
 
 import torch
 from torch import Tensor, nn
@@ -15,11 +16,16 @@ from datasets.tsinghua_dogs import (
 
 from training.breed_classifier import build_breed_classifier
 
+CHECKPOINT_DIRECTORY = (
+    Path(__file__).resolve().parents[1] / "artifacts" / "classifier" / "checkpoints"
+)
+
 BATCH_SIZE = 4
 MAX_DEBUG_BATCHES = 3
 LEARNING_RATE = 0.001
 WEIGHT_DECAY = 0.0001
-DEBUG_EPOCHS = 2
+TOTAL_EPOCHS = 3
+RESUME_FROM_CHECKPOINT = True
 
 
 def select_device() -> torch.device:
@@ -145,6 +151,78 @@ def evaluate(
     return average_loss, accuracy
 
 
+def save_training_checkpoint(
+    checkpoint_path: Path,
+    model: nn.Module,
+    optimizer: torch.optim.Optimizer,
+    gradient_scaler: torch.amp.GradScaler,
+    epoch_number: int,
+    breed_names: tuple[str, ...],
+    validation_loss: float,
+    validation_accuracy: float,
+    best_validation_loss: float,
+) -> None:
+    """Save enough training state to resume from the current epoch."""
+
+    checkpoint_path.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    checkpoint = {
+        "epoch": epoch_number,
+        "model_state_dict": model.state_dict(),
+        "optimizer_state_dict": optimizer.state_dict(),
+        "gradient_scaler_state_dict": gradient_scaler.state_dict(),
+        "breed_names": breed_names,
+        "validation_loss": validation_loss,
+        "validation_accuracy": validation_accuracy,
+        "best_validation_loss": best_validation_loss,
+    }
+
+    torch.save(checkpoint, checkpoint_path)
+
+
+def load_training_checkpoint(
+    checkpoint_path: Path,
+    model: nn.Module,
+    optimizer: torch.optim.Optimizer,
+    gradient_scaler: torch.amp.GradScaler,
+    expected_breed_names: tuple[str, ...],
+    device: torch.device,
+) -> tuple[int, float]:
+    """Restore training state and return the completed epoch and best validation loss."""
+
+    checkpoint = torch.load(
+        checkpoint_path,
+        map_location=device,
+        weights_only=True,
+    )
+
+    checkpoint_breed_names = tuple(checkpoint["breed_names"])
+
+    if checkpoint_breed_names != expected_breed_names:
+        raise ValueError("Checkpoint breed ordering does not match the current dataset")
+
+    model.load_state_dict(checkpoint["model_state_dict"])
+    optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+
+    scaler_state = checkpoint["gradient_scaler_state_dict"]
+
+    # CPU checkpoints contain no active CUDA scaler state.
+    if gradient_scaler.is_enabled() and scaler_state:
+        gradient_scaler.load_state_dict(scaler_state)
+
+    best_validation_loss = float(
+        checkpoint.get(
+            "best_validation_loss",
+            checkpoint["validation_loss"],
+        )
+    )
+
+    return int(checkpoint["epoch"]), best_validation_loss
+
+
 def main() -> None:
     """Build the training pipeline and run a short local smoke test."""
 
@@ -167,7 +245,7 @@ def main() -> None:
     )
 
     train_paths = load_split_paths(TRAIN_SPLIT_PATH)
-    _, breed_to_id = build_breed_mapping(train_paths)
+    breed_names, breed_to_id = build_breed_mapping(train_paths)
 
     train_dataset = TsinghuaDogsDataset(
         train_paths,
@@ -201,9 +279,31 @@ def main() -> None:
         pin_memory=device.type == "cuda",
     )
 
-    for epoch_number in range(1, DEBUG_EPOCHS + 1):
+    # check if checkpoint exists and load
+    latest_checkpoint_path = CHECKPOINT_DIRECTORY / "latest.pt"
+    best_checkpoint_path = CHECKPOINT_DIRECTORY / "best.pt"
+
+    starting_epoch = 1
+    best_validation_loss = float("inf")
+
+    if RESUME_FROM_CHECKPOINT and latest_checkpoint_path.exists():
+        completed_epoch, best_validation_loss = load_training_checkpoint(
+            checkpoint_path=latest_checkpoint_path,
+            model=model,
+            optimizer=optimizer,
+            gradient_scaler=gradient_scaler,
+            expected_breed_names=breed_names,
+            device=device,
+        )
+
+        starting_epoch = completed_epoch + 1
+
+        print(f"Resuming after epoch {completed_epoch}")
+
+    # training loop
+    for epoch_number in range(starting_epoch, TOTAL_EPOCHS + 1):
         print()
-        print(f"Epoch {epoch_number}/{DEBUG_EPOCHS}")
+        print(f"Epoch {epoch_number}/{TOTAL_EPOCHS}")
 
         average_training_loss = train_one_epoch(
             model=model,
@@ -226,6 +326,39 @@ def main() -> None:
         print(f"Training loss: {average_training_loss:.4f}")
         print(f"Validation loss: {validation_loss:.4f}")
         print(f"Validation accuracy: {validation_accuracy:.2%}")
+
+        # Keep a separate copy of the model with the lowest validation loss.
+        if validation_loss < best_validation_loss:
+            best_validation_loss = validation_loss
+
+            save_training_checkpoint(
+                checkpoint_path=best_checkpoint_path,
+                model=model,
+                optimizer=optimizer,
+                gradient_scaler=gradient_scaler,
+                epoch_number=epoch_number,
+                breed_names=breed_names,
+                validation_loss=validation_loss,
+                validation_accuracy=validation_accuracy,
+                best_validation_loss=best_validation_loss,
+            )
+
+            print(f"Saved new best checkpoint: {best_checkpoint_path}")
+
+        # save current epoch checkpoint
+        save_training_checkpoint(
+            checkpoint_path=latest_checkpoint_path,
+            model=model,
+            optimizer=optimizer,
+            gradient_scaler=gradient_scaler,
+            epoch_number=epoch_number,
+            breed_names=breed_names,
+            validation_loss=validation_loss,
+            validation_accuracy=validation_accuracy,
+            best_validation_loss=best_validation_loss,
+        )
+
+        print(f"Saved checkpoint: {latest_checkpoint_path}")
 
 
 if __name__ == "__main__":
