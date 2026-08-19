@@ -30,7 +30,7 @@ BATCH_SIZE = 4 if DEBUG_MODE else 64
 NUM_WORKERS = 0 if DEBUG_MODE else 4
 MAX_BATCHES = 3 if DEBUG_MODE else None
 TOTAL_EPOCHS = 3 if DEBUG_MODE else 10
-
+RANDOM_SEED = 42
 
 LEARNING_RATE = 0.001
 WEIGHT_DECAY = 0.0001
@@ -41,6 +41,15 @@ def select_device() -> torch.device:
     """Use an NVIDIA CUDA GPU when available, otherwise use the CPU."""
 
     return torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+
+def set_random_seed(seed: int) -> None:
+    """Initialize PyTorch randomness consistently for a fresh training run."""
+
+    torch.manual_seed(seed)
+
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
 
 
 def build_balanced_sample_weights(image_paths: list[Path]) -> list[float]:
@@ -245,6 +254,8 @@ def load_training_checkpoint(
 def main() -> None:
     """Build the training pipeline and run a short local smoke test."""
 
+    set_random_seed(RANDOM_SEED)
+
     device = select_device()
     model = build_breed_classifier().to(device)
 
@@ -272,12 +283,17 @@ def main() -> None:
         image_augmentation=TRAINING_AUGMENTATION,
     )
 
+    # Use a fixed random seed for the sampler to ensure reproducibility across runs.
+    sampler_generator = torch.Generator()
+    sampler_generator.manual_seed(RANDOM_SEED)
+
     # balance the training dataset by giving rare breeds a higher sampling probability
     train_sample_weights = build_balanced_sample_weights(train_paths)
     train_sampler = WeightedRandomSampler(
         weights=train_sample_weights,
         num_samples=len(train_dataset),
         replacement=True,
+        generator=sampler_generator,
     )
 
     # train set
