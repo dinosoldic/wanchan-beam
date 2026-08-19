@@ -31,6 +31,7 @@ NUM_WORKERS = 0 if DEBUG_MODE else 4
 MAX_BATCHES = 3 if DEBUG_MODE else None
 TOTAL_EPOCHS = 3 if DEBUG_MODE else 10
 RANDOM_SEED = 42
+BATCH_LOG_INTERVAL = 1 if DEBUG_MODE else 50
 
 LEARNING_RATE = 0.001
 WEIGHT_DECAY = 0.0001
@@ -70,6 +71,7 @@ def train_one_epoch(
     gradient_scaler: torch.amp.GradScaler,
     device: torch.device,
     max_batches: int | None = None,
+    log_interval: int = 1,
 ) -> float:
     """Train the model for one pass over the supplied batches."""
 
@@ -120,7 +122,8 @@ def train_one_epoch(
         total_loss += loss.item() * batch_size
         processed_examples += batch_size
 
-        print(f"Batch {batch_number}: loss={loss.item():.4f}")
+        if batch_number == 1 or batch_number % log_interval == 0:
+            print(f"Batch {batch_number}: loss={loss.item():.4f}")
 
     if processed_examples == 0:
         raise ValueError("Training did not receive any examples")
@@ -357,6 +360,7 @@ def main() -> None:
             gradient_scaler=gradient_scaler,
             device=device,
             max_batches=MAX_BATCHES,
+            log_interval=BATCH_LOG_INTERVAL,
         )
 
         validation_loss, validation_accuracy = evaluate(
