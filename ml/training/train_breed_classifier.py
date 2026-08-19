@@ -21,11 +21,18 @@ LEARNING_RATE = 0.001
 WEIGHT_DECAY = 0.0001
 
 
+def select_device() -> torch.device:
+    """Use an NVIDIA CUDA GPU when available, otherwise use the CPU."""
+
+    return torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+
 def train_one_epoch(
     model: nn.Module,
     data_loader: Iterable[tuple[Tensor, Tensor]],
     loss_function: nn.Module,
     optimizer: torch.optim.Optimizer,
+    device: torch.device,
     max_batches: int | None = None,
 ) -> float:
     """Train the model for one pass over the supplied batches."""
@@ -46,6 +53,10 @@ def train_one_epoch(
     ):
         if max_batches is not None and batch_number > max_batches:
             break
+
+        # pass to device (GPU or CPU)
+        batch_images = batch_images.to(device)
+        batch_breed_ids = batch_breed_ids.to(device)
 
         # 1. Clear gradients left over from the previous batch.
         optimizer.zero_grad()
@@ -78,6 +89,7 @@ def evaluate(
     model: nn.Module,
     data_loader: Iterable[tuple[Tensor, Tensor]],
     loss_function: nn.Module,
+    device: torch.device,
     max_batches: int | None = None,
 ) -> tuple[float, float]:
     """Calculate average loss and top-one accuracy without training."""
@@ -95,6 +107,10 @@ def evaluate(
         ):
             if max_batches is not None and batch_number > max_batches:
                 break
+
+            # pass to device (GPU or CPU)
+            batch_images = batch_images.to(device)
+            batch_breed_ids = batch_breed_ids.to(device)
 
             output_logits = model(batch_images)
             loss = loss_function(output_logits, batch_breed_ids)
@@ -119,7 +135,10 @@ def evaluate(
 def main() -> None:
     """Build the training pipeline and run a short local smoke test."""
 
-    model = build_breed_classifier()
+    device = select_device()
+    model = build_breed_classifier().to(device)
+
+    print(f"Training device: {device}")
 
     optimizer = torch.optim.AdamW(
         (parameter for parameter in model.parameters() if parameter.requires_grad),
@@ -141,6 +160,7 @@ def main() -> None:
         batch_size=BATCH_SIZE,
         shuffle=True,
         num_workers=0,
+        pin_memory=device.type == "cuda",
     )
 
     loss_function = nn.CrossEntropyLoss()
@@ -150,6 +170,7 @@ def main() -> None:
         data_loader=train_data_loader,
         loss_function=loss_function,
         optimizer=optimizer,
+        device=device,
         max_batches=MAX_DEBUG_BATCHES,
     )
 
@@ -166,12 +187,14 @@ def main() -> None:
         batch_size=BATCH_SIZE,
         shuffle=False,
         num_workers=0,
+        pin_memory=device.type == "cuda",
     )
 
     validation_loss, validation_accuracy = evaluate(
         model=model,
         data_loader=validation_data_loader,
         loss_function=loss_function,
+        device=device,
         max_batches=MAX_DEBUG_BATCHES,
     )
 
