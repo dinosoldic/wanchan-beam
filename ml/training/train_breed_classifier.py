@@ -93,8 +93,8 @@ def train_one_epoch(
             break
 
         # pass to device (GPU or CPU)
-        batch_images = batch_images.to(device)
-        batch_breed_ids = batch_breed_ids.to(device)
+        batch_images = batch_images.to(device, non_blocking=device.type == "cuda")
+        batch_breed_ids = batch_breed_ids.to(device, non_blocking=device.type == "cuda")
 
         # 1. Clear gradients left over from the previous batch.
         optimizer.zero_grad()
@@ -155,8 +155,10 @@ def evaluate(
                 break
 
             # pass to device (GPU or CPU)
-            batch_images = batch_images.to(device)
-            batch_breed_ids = batch_breed_ids.to(device)
+            batch_images = batch_images.to(device, non_blocking=device.type == "cuda")
+            batch_breed_ids = batch_breed_ids.to(
+                device, non_blocking=device.type == "cuda"
+            )
 
             with torch.amp.autocast(
                 device_type=device.type,
@@ -260,9 +262,18 @@ def main() -> None:
     set_random_seed(RANDOM_SEED)
 
     device = select_device()
+    if not DEBUG_MODE and device.type != "cuda":
+        raise RuntimeError(
+            "Full training mode requires CUDA. Enable DEBUG_MODE for CPU testing."
+        )
+
     model = build_breed_classifier().to(device)
 
     print(f"Training device: {device}")
+    print(f"Training mode: {'debug' if DEBUG_MODE else 'full'}")
+
+    if device.type == "cuda":
+        print(f"GPU: {torch.cuda.get_device_name(device)}")
 
     mixed_precision_enabled = device.type == "cuda"
 
@@ -306,6 +317,7 @@ def main() -> None:
         sampler=train_sampler,
         num_workers=NUM_WORKERS,
         pin_memory=device.type == "cuda",
+        persistent_workers=NUM_WORKERS > 0,
     )
 
     loss_function = nn.CrossEntropyLoss()
@@ -324,6 +336,7 @@ def main() -> None:
         shuffle=False,
         num_workers=NUM_WORKERS,
         pin_memory=device.type == "cuda",
+        persistent_workers=NUM_WORKERS > 0,
     )
 
     # check if checkpoint exists and load
