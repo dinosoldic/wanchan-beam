@@ -1,9 +1,10 @@
+from collections import Counter
 from collections.abc import Iterable
 from pathlib import Path
 
 import torch
 from torch import Tensor, nn
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, WeightedRandomSampler
 
 from datasets.tsinghua_dogs import (
     TRAINING_AUGMENTATION,
@@ -12,6 +13,7 @@ from datasets.tsinghua_dogs import (
     TsinghuaDogsDataset,
     build_breed_mapping,
     load_split_paths,
+    get_breed_name,
 )
 
 from training.breed_classifier import build_breed_classifier
@@ -32,6 +34,16 @@ def select_device() -> torch.device:
     """Use an NVIDIA CUDA GPU when available, otherwise use the CPU."""
 
     return torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+
+def build_balanced_sample_weights(image_paths: list[Path]) -> list[float]:
+    """Give images from rare breeds a greater sampling probability."""
+
+    breed_counts = Counter(get_breed_name(image_path) for image_path in image_paths)
+
+    return [
+        1.0 / breed_counts[get_breed_name(image_path)] for image_path in image_paths
+    ]
 
 
 def train_one_epoch(
@@ -253,10 +265,19 @@ def main() -> None:
         image_augmentation=TRAINING_AUGMENTATION,
     )
 
+    # balance the training dataset by giving rare breeds a higher sampling probability
+    train_sample_weights = build_balanced_sample_weights(train_paths)
+    train_sampler = WeightedRandomSampler(
+        weights=train_sample_weights,
+        num_samples=len(train_dataset),
+        replacement=True,
+    )
+
+    # train set
     train_data_loader = DataLoader(
         train_dataset,
         batch_size=BATCH_SIZE,
-        shuffle=True,
+        sampler=train_sampler,
         num_workers=0,
         pin_memory=device.type == "cuda",
     )
