@@ -19,6 +19,7 @@ BATCH_SIZE = 4
 MAX_DEBUG_BATCHES = 3
 LEARNING_RATE = 0.001
 WEIGHT_DECAY = 0.0001
+DEBUG_EPOCHS = 2
 
 
 def select_device() -> torch.device:
@@ -32,6 +33,7 @@ def train_one_epoch(
     data_loader: Iterable[tuple[Tensor, Tensor]],
     loss_function: nn.Module,
     optimizer: torch.optim.Optimizer,
+    gradient_scaler: torch.amp.GradScaler,
     device: torch.device,
     max_batches: int | None = None,
 ) -> float:
@@ -61,17 +63,24 @@ def train_one_epoch(
         # 1. Clear gradients left over from the previous batch.
         optimizer.zero_grad()
 
-        # 2. Forward pass: produce one breed score per class and image.
-        output_logits = model(batch_images)
+        with torch.amp.autocast(
+            device_type=device.type,
+            enabled=gradient_scaler.is_enabled(),
+        ):
+            # 2. Forward pass: produce one breed score per class and image.
+            output_logits = model(batch_images)
 
-        # 3. Compare the predicted scores with the correct breed IDs.
-        loss = loss_function(output_logits, batch_breed_ids)
+            # 3. Compare the predicted scores with the correct breed IDs.
+            loss = loss_function(output_logits, batch_breed_ids)
 
-        # 4. Backward pass: calculate gradients for trainable parameters.
-        loss.backward()
+        # 4. Scale the loss and calculate gradients.
+        gradient_scaler.scale(loss).backward()
 
-        # 5. Update the trainable parameters using those gradients.
-        optimizer.step()
+        # 5. Unscale gradients and update the trainable parameters.
+        gradient_scaler.step(optimizer)
+
+        # Adjust the scale for the next batch.
+        gradient_scaler.update()
 
         batch_size = batch_images.size(0)
         total_loss += loss.item() * batch_size
@@ -112,8 +121,12 @@ def evaluate(
             batch_images = batch_images.to(device)
             batch_breed_ids = batch_breed_ids.to(device)
 
-            output_logits = model(batch_images)
-            loss = loss_function(output_logits, batch_breed_ids)
+            with torch.amp.autocast(
+                device_type=device.type,
+                enabled=device.type == "cuda",
+            ):
+                output_logits = model(batch_images)
+                loss = loss_function(output_logits, batch_breed_ids)
 
             predicted_breed_ids = output_logits.argmax(dim=1)
 
@@ -140,6 +153,13 @@ def main() -> None:
 
     print(f"Training device: {device}")
 
+    mixed_precision_enabled = device.type == "cuda"
+
+    gradient_scaler = torch.amp.GradScaler(
+        device=device.type,
+        enabled=mixed_precision_enabled,
+    )
+
     optimizer = torch.optim.AdamW(
         (parameter for parameter in model.parameters() if parameter.requires_grad),
         lr=LEARNING_RATE,
@@ -165,16 +185,7 @@ def main() -> None:
 
     loss_function = nn.CrossEntropyLoss()
 
-    average_training_loss = train_one_epoch(
-        model=model,
-        data_loader=train_data_loader,
-        loss_function=loss_function,
-        optimizer=optimizer,
-        device=device,
-        max_batches=MAX_DEBUG_BATCHES,
-    )
-
-    # Validation
+    # Validation uses the official split without random augmentation
     validation_paths = load_split_paths(VALIDATION_SPLIT_PATH)
 
     validation_dataset = TsinghuaDogsDataset(
@@ -190,16 +201,31 @@ def main() -> None:
         pin_memory=device.type == "cuda",
     )
 
-    validation_loss, validation_accuracy = evaluate(
-        model=model,
-        data_loader=validation_data_loader,
-        loss_function=loss_function,
-        device=device,
-        max_batches=MAX_DEBUG_BATCHES,
-    )
+    for epoch_number in range(1, DEBUG_EPOCHS + 1):
+        print()
+        print(f"Epoch {epoch_number}/{DEBUG_EPOCHS}")
 
-    print(f"Validation loss: {validation_loss:.4f}")
-    print(f"Validation accuracy: {validation_accuracy:.2%}")
+        average_training_loss = train_one_epoch(
+            model=model,
+            data_loader=train_data_loader,
+            loss_function=loss_function,
+            optimizer=optimizer,
+            gradient_scaler=gradient_scaler,
+            device=device,
+            max_batches=MAX_DEBUG_BATCHES,
+        )
+
+        validation_loss, validation_accuracy = evaluate(
+            model=model,
+            data_loader=validation_data_loader,
+            loss_function=loss_function,
+            device=device,
+            max_batches=MAX_DEBUG_BATCHES,
+        )
+
+        print(f"Training loss: {average_training_loss:.4f}")
+        print(f"Validation loss: {validation_loss:.4f}")
+        print(f"Validation accuracy: {validation_accuracy:.2%}")
 
 
 if __name__ == "__main__":
