@@ -132,10 +132,9 @@ def load_dog_crop(relative_image_path: Path) -> Image.Image:
         # JPEG dimensions are authoritative because some XML sizes are swapped.
         clamped_box = clamp_box(body_box, *rgb_image.size)
 
+        # Fall back to the complete image when the annotation has no usable area.
         if clamped_box.width <= 0 or clamped_box.height <= 0:
-            raise ValueError(
-                f"Body box has no usable area after clamping: {image_path}"
-            )
+            return rgb_image.copy()
 
         return rgb_image.crop(
             (
