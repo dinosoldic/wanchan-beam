@@ -11,10 +11,11 @@ NUMBER_OF_BREEDS = 130
 
 def build_breed_classifier(
     number_of_breeds: int = NUMBER_OF_BREEDS,
+    use_pretrained_weights: bool = True,
 ) -> nn.Module:
-    """Build MobileNetV3 with a trainable dog-breed output layer."""
+    """Build MobileNetV3 for training or loading a saved checkpoint."""
 
-    weights = MobileNet_V3_Large_Weights.DEFAULT
+    weights = MobileNet_V3_Large_Weights.DEFAULT if use_pretrained_weights else None
     model = mobilenet_v3_large(weights=weights)
 
     # Preserve the pretrained features during the first training phase.
