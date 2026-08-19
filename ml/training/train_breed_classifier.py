@@ -18,18 +18,25 @@ from datasets.tsinghua_dogs import (
 
 from training.breed_classifier import build_breed_classifier
 
+### constants
 CHECKPOINT_DIRECTORY = (
     Path(__file__).resolve().parents[1] / "artifacts" / "classifier" / "checkpoints"
 )
 
-BATCH_SIZE = 4
-MAX_DEBUG_BATCHES = 3
-LEARNING_RATE = 0.001
-WEIGHT_DECAY = 0.0001
-TOTAL_EPOCHS = 3
+DEBUG_MODE = True
 RESUME_FROM_CHECKPOINT = True
 
+BATCH_SIZE = 4 if DEBUG_MODE else 64
+NUM_WORKERS = 0 if DEBUG_MODE else 4
+MAX_BATCHES = 3 if DEBUG_MODE else None
+TOTAL_EPOCHS = 3 if DEBUG_MODE else 10
 
+
+LEARNING_RATE = 0.001
+WEIGHT_DECAY = 0.0001
+
+
+### funcs
 def select_device() -> torch.device:
     """Use an NVIDIA CUDA GPU when available, otherwise use the CPU."""
 
@@ -278,7 +285,7 @@ def main() -> None:
         train_dataset,
         batch_size=BATCH_SIZE,
         sampler=train_sampler,
-        num_workers=0,
+        num_workers=NUM_WORKERS,
         pin_memory=device.type == "cuda",
     )
 
@@ -296,7 +303,7 @@ def main() -> None:
         validation_dataset,
         batch_size=BATCH_SIZE,
         shuffle=False,
-        num_workers=0,
+        num_workers=NUM_WORKERS,
         pin_memory=device.type == "cuda",
     )
 
@@ -333,7 +340,7 @@ def main() -> None:
             optimizer=optimizer,
             gradient_scaler=gradient_scaler,
             device=device,
-            max_batches=MAX_DEBUG_BATCHES,
+            max_batches=MAX_BATCHES,
         )
 
         validation_loss, validation_accuracy = evaluate(
@@ -341,7 +348,7 @@ def main() -> None:
             data_loader=validation_data_loader,
             loss_function=loss_function,
             device=device,
-            max_batches=MAX_DEBUG_BATCHES,
+            max_batches=MAX_BATCHES,
         )
 
         print(f"Training loss: {average_training_loss:.4f}")
