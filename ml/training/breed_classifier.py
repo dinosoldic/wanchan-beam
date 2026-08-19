@@ -5,6 +5,7 @@ from torchvision.models import (
     MobileNet_V3_Large_Weights,
     mobilenet_v3_large,
 )
+from torchvision.models.mobilenetv3 import MobileNetV3
 
 NUMBER_OF_BREEDS = 130
 
@@ -12,7 +13,7 @@ NUMBER_OF_BREEDS = 130
 def build_breed_classifier(
     number_of_breeds: int = NUMBER_OF_BREEDS,
     use_pretrained_weights: bool = True,
-) -> nn.Module:
+) -> MobileNetV3:
     """Build MobileNetV3 for training or loading a saved checkpoint."""
 
     weights = MobileNet_V3_Large_Weights.DEFAULT if use_pretrained_weights else None
@@ -33,3 +34,22 @@ def build_breed_classifier(
     )
 
     return model
+
+
+def unfreeze_for_fine_tuning(
+    model: MobileNetV3,
+    number_of_feature_modules: int = 3,
+) -> None:
+    """Unfreeze the classifier and deepest feature modules."""
+
+    feature_modules = list(model.features.children())
+
+    if not 1 <= number_of_feature_modules <= len(feature_modules):
+        raise ValueError("The number of feature modules must fit inside model.features")
+
+    for parameter in model.classifier.parameters():
+        parameter.requires_grad = True
+
+    for feature_module in feature_modules[-number_of_feature_modules:]:
+        for parameter in feature_module.parameters():
+            parameter.requires_grad = True
