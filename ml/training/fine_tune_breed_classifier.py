@@ -31,7 +31,7 @@ from training.train_breed_classifier import (
 ML_ROOT = Path(__file__).resolve().parents[1]
 CHECKPOINT_DIRECTORY = ML_ROOT / "artifacts" / "classifier" / "checkpoints"
 
-EXPERIMENT_NAME = "2modules"
+EXPERIMENT_NAME = "classifier-only-classifier-lr-1e-4"
 
 BASELINE_CHECKPOINT_PATH = CHECKPOINT_DIRECTORY / "head-baseline-best.pt"
 FINE_TUNE_LATEST_CHECKPOINT_PATH = (
@@ -45,7 +45,7 @@ FINE_TUNE_BEST_ACCURACY_CHECKPOINT_PATH = (
     CHECKPOINT_DIRECTORY / f"fine-tune-{EXPERIMENT_NAME}-best-accuracy.pt"
 )
 
-NUMBER_OF_FEATURE_MODULES_TO_UNFREEZE = 2
+NUMBER_OF_FEATURE_MODULES_TO_UNFREEZE = 0
 
 BATCH_SIZE = 64
 NUMBER_OF_WORKERS = 4
@@ -80,7 +80,7 @@ def count_trainable_parameters(module: nn.Module) -> int:
 
 
 def main() -> None:
-    """Fine-tune the deepest MobileNetV3 modules and classifier."""
+    """Fine-tune selected MobileNetV3 modules and its classifier."""
 
     set_random_seed(RANDOM_SEED)
 
@@ -161,7 +161,12 @@ def main() -> None:
     trainable_parameter_count = count_trainable_parameters(model)
     feature_modules = list(model.features.children())
 
-    unfrozen_feature_modules = feature_modules[-NUMBER_OF_FEATURE_MODULES_TO_UNFREEZE:]
+    if NUMBER_OF_FEATURE_MODULES_TO_UNFREEZE == 0:
+        unfrozen_feature_modules = []
+    else:
+        unfrozen_feature_modules = feature_modules[
+            -NUMBER_OF_FEATURE_MODULES_TO_UNFREEZE:
+        ]
 
     # Separate parameter groups let AdamW update the classifier and pretrained
     # feature modules at different learning rates.
@@ -178,19 +183,26 @@ def main() -> None:
         if parameter.requires_grad
     ]
 
-    optimizer = torch.optim.AdamW(
-        [
-            {
-                "params": classifier_parameter_group,
-                "lr": CLASSIFIER_LEARNING_RATE,
-            },
-            {
-                "params": feature_parameter_group,
-                "lr": FEATURE_LEARNING_RATE,
-            },
-        ],
-        weight_decay=WEIGHT_DECAY,
-    )
+    if feature_parameter_group:
+        optimizer = torch.optim.AdamW(
+            [
+                {
+                    "params": classifier_parameter_group,
+                    "lr": CLASSIFIER_LEARNING_RATE,
+                },
+                {
+                    "params": feature_parameter_group,
+                    "lr": FEATURE_LEARNING_RATE,
+                },
+            ],
+            weight_decay=WEIGHT_DECAY,
+        )
+    else:
+        optimizer = torch.optim.AdamW(
+            classifier_parameter_group,
+            lr=CLASSIFIER_LEARNING_RATE,
+            weight_decay=WEIGHT_DECAY,
+        )
 
     loss_function = nn.CrossEntropyLoss()
 
@@ -265,10 +277,12 @@ def main() -> None:
         f"Model: {NUMBER_OF_FEATURE_MODULES_TO_UNFREEZE} feature modules unfrozen, "
         f"{trainable_parameter_count:,} trainable parameters"
     )
-    print(
-        f"Optimizer: classifier lr={CLASSIFIER_LEARNING_RATE}, "
-        f"feature lr={FEATURE_LEARNING_RATE}, weight decay={WEIGHT_DECAY}"
-    )
+    optimizer_description = f"classifier lr={CLASSIFIER_LEARNING_RATE}"
+    if feature_parameter_group:
+        optimizer_description += f", feature lr={FEATURE_LEARNING_RATE}"
+    optimizer_description += f", weight decay={WEIGHT_DECAY}"
+
+    print(f"Optimizer: {optimizer_description}")
     print(
         f"Data: {len(training_dataset):,} training samples "
         f"({len(training_data_loader):,} batches), "

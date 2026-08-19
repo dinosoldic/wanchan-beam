@@ -40,15 +40,20 @@ def unfreeze_for_fine_tuning(
     model: MobileNetV3,
     number_of_feature_modules: int = 3,
 ) -> None:
-    """Unfreeze the classifier and deepest feature modules."""
+    """Unfreeze the classifier and selected deepest feature modules."""
 
     feature_modules = list(model.features.children())
 
-    if not 1 <= number_of_feature_modules <= len(feature_modules):
+    if not 0 <= number_of_feature_modules <= len(feature_modules):
         raise ValueError("The number of feature modules must fit inside model.features")
 
+    # The complete classifier is always trained during fine-tuning.
     for parameter in model.classifier.parameters():
         parameter.requires_grad = True
+
+    # Zero means classifier-only; avoid the [-0:] slice, which selects everything.
+    if number_of_feature_modules == 0:
+        return
 
     for feature_module in feature_modules[-number_of_feature_modules:]:
         for parameter in feature_module.parameters():
