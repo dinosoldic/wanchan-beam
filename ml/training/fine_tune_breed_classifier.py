@@ -31,7 +31,7 @@ from training.train_breed_classifier import (
 ML_ROOT = Path(__file__).resolve().parents[1]
 CHECKPOINT_DIRECTORY = ML_ROOT / "artifacts" / "classifier" / "checkpoints"
 
-EXPERIMENT_NAME = "1module-clr-5e-5-flr-5e-6-cosine"
+EXPERIMENT_NAME = "1module-clr-5e-5-flr-5e-6-cosine-ls-0.05"
 
 BASELINE_CHECKPOINT_PATH = CHECKPOINT_DIRECTORY / "head-baseline-best.pt"
 FINE_TUNE_LATEST_CHECKPOINT_PATH = (
@@ -60,6 +60,7 @@ RESUME_FROM_CHECKPOINT = True
 CLASSIFIER_LEARNING_RATE = 0.00005
 FEATURE_LEARNING_RATE = 0.000005
 WEIGHT_DECAY = 0.0001
+LABEL_SMOOTHING = 0.05
 
 
 ### funcs
@@ -212,7 +213,11 @@ def main() -> None:
         eta_min=0.0,
     )
 
-    loss_function = nn.CrossEntropyLoss()
+    training_loss_function = nn.CrossEntropyLoss(
+        label_smoothing=LABEL_SMOOTHING,
+    )
+
+    validation_loss_function = nn.CrossEntropyLoss()
 
     # Mixed precision reduces GPU memory use and generally speeds up CUDA training.
     mixed_precision_enabled = device.type == "cuda"
@@ -304,6 +309,7 @@ def main() -> None:
         f"({len(validation_data_loader):,} batches)"
     )
     print(f"Mixed precision: {mixed_precision_enabled}")
+    print(f"Label smoothing: {LABEL_SMOOTHING}")
 
     for epoch_number in range(starting_epoch, TOTAL_EPOCHS + 1):
         print()
@@ -319,7 +325,7 @@ def main() -> None:
         average_training_loss = train_one_epoch(
             model=model,
             data_loader=training_data_loader,
-            loss_function=loss_function,
+            loss_function=training_loss_function,
             optimizer=optimizer,
             gradient_scaler=gradient_scaler,
             device=device,
@@ -330,7 +336,7 @@ def main() -> None:
         validation_loss, validation_accuracy = evaluate(
             model=model,
             data_loader=validation_data_loader,
-            loss_function=loss_function,
+            loss_function=validation_loss_function,
             device=device,
         )
 
