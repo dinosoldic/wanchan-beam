@@ -13,11 +13,22 @@ NUMBER_OF_BREEDS = 130
 def build_breed_classifier(
     number_of_breeds: int = NUMBER_OF_BREEDS,
     use_pretrained_weights: bool = True,
+    dropout_probability: float = 0.2,
 ) -> MobileNetV3:
     """Build MobileNetV3 for training or loading a saved checkpoint."""
 
     weights = MobileNet_V3_Large_Weights.DEFAULT if use_pretrained_weights else None
     model = mobilenet_v3_large(weights=weights)
+
+    if not 0.0 <= dropout_probability < 1.0:
+        raise ValueError("Dropout probability must be between 0 and 1")
+
+    dropout_layer = model.classifier[2]
+
+    if not isinstance(dropout_layer, nn.Dropout):
+        raise TypeError("Expected MobileNetV3 classifier[2] to be dropout")
+
+    dropout_layer.p = dropout_probability
 
     # Preserve the pretrained features during the first training phase.
     for parameter in model.parameters():
