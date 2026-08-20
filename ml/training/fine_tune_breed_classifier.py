@@ -7,10 +7,10 @@ from torch import nn
 from torch.utils.data import DataLoader, WeightedRandomSampler
 
 from datasets.tsinghua_dogs import (
-    TRAINING_AUGMENTATION,
     TRAIN_SPLIT_PATH,
     VALIDATION_SPLIT_PATH,
     TsinghuaDogsDataset,
+    build_training_augmentation,
     build_breed_mapping,
     load_split_paths,
 )
@@ -31,7 +31,7 @@ from training.train_breed_classifier import (
 ML_ROOT = Path(__file__).resolve().parents[1]
 CHECKPOINT_DIRECTORY = ML_ROOT / "artifacts" / "classifier" / "checkpoints"
 
-EXPERIMENT_NAME = "1module-clr-5e-5-flr-5e-6-cosine-ls-0.05"
+EXPERIMENT_NAME = "1module-clr-5e-5-flr-5e-6-cosine-ls-0.02-affine"
 
 BASELINE_CHECKPOINT_PATH = CHECKPOINT_DIRECTORY / "head-baseline-best.pt"
 FINE_TUNE_LATEST_CHECKPOINT_PATH = (
@@ -60,7 +60,8 @@ RESUME_FROM_CHECKPOINT = True
 CLASSIFIER_LEARNING_RATE = 0.00005
 FEATURE_LEARNING_RATE = 0.000005
 WEIGHT_DECAY = 0.0001
-LABEL_SMOOTHING = 0.05
+LABEL_SMOOTHING = 0.02
+USE_GEOMETRIC_AUGMENTATION = True
 
 
 ### funcs
@@ -90,10 +91,14 @@ def main() -> None:
     training_paths = load_split_paths(TRAIN_SPLIT_PATH)
     breed_names, breed_to_id = build_breed_mapping(training_paths)
 
+    training_augmentation = build_training_augmentation(
+        use_geometric_augmentation=USE_GEOMETRIC_AUGMENTATION,
+    )
+
     training_dataset = TsinghuaDogsDataset(
         training_paths,
         breed_to_id,
-        image_augmentation=TRAINING_AUGMENTATION,
+        image_augmentation=training_augmentation,
     )
 
     # A dedicated generator makes the balanced sampling order reproducible.
@@ -231,6 +236,7 @@ def main() -> None:
     best_validation_loss = float("inf")
     best_validation_accuracy = 0.0
     epochs_without_metric_improvement = 0
+    checkpoint_status = "No fine-tuning checkpoint found; starting from baseline"
 
     if RESUME_FROM_CHECKPOINT and FINE_TUNE_LATEST_CHECKPOINT_PATH.exists():
         (
@@ -267,9 +273,7 @@ def main() -> None:
                 best_accuracy_checkpoint["validation_accuracy"]
             )
 
-        print(f"Resuming fine-tuning after epoch {completed_epoch}")
-    else:
-        print("No fine-tuning checkpoint found; " "starting from the baseline model")
+        checkpoint_status = f"Resuming fine-tuning after epoch {completed_epoch}"
 
     # Catch accidentally trainable parameters that were omitted from the
     # optimizer. Such parameters would receive gradients but never be updated.
@@ -285,8 +289,15 @@ def main() -> None:
     if device.type == "cuda":
         device_description += f" ({torch.cuda.get_device_name(device)})"
 
+    optimizer_description = f"classifier lr={CLASSIFIER_LEARNING_RATE}"
+    if feature_parameter_group:
+        optimizer_description += f", feature lr={FEATURE_LEARNING_RATE}"
+    optimizer_description += f", weight decay={WEIGHT_DECAY}"
+
+    ## debug info
     print(f"Experiment: {EXPERIMENT_NAME}")
     print(f"Fine-tuning device: {device_description}")
+    print(f"Checkpoint: {checkpoint_status}")
     print(
         f"Baseline: epoch {baseline_checkpoint['epoch']}, "
         f"validation loss={baseline_checkpoint['validation_loss']:.4f}, "
@@ -296,20 +307,16 @@ def main() -> None:
         f"Model: {NUMBER_OF_FEATURE_MODULES_TO_UNFREEZE} feature modules unfrozen, "
         f"{trainable_parameter_count:,} trainable parameters"
     )
-    optimizer_description = f"classifier lr={CLASSIFIER_LEARNING_RATE}"
-    if feature_parameter_group:
-        optimizer_description += f", feature lr={FEATURE_LEARNING_RATE}"
-    optimizer_description += f", weight decay={WEIGHT_DECAY}"
-
-    print(f"Optimizer: {optimizer_description}")
     print(
         f"Data: {len(training_dataset):,} training samples "
         f"({len(training_data_loader):,} batches), "
         f"{len(validation_dataset):,} validation samples "
         f"({len(validation_data_loader):,} batches)"
     )
-    print(f"Mixed precision: {mixed_precision_enabled}")
+    print(f"Geometric augmentation: {USE_GEOMETRIC_AUGMENTATION}")
     print(f"Label smoothing: {LABEL_SMOOTHING}")
+    print(f"Optimizer: {optimizer_description}")
+    print(f"Mixed precision: {mixed_precision_enabled}")
 
     for epoch_number in range(starting_epoch, TOTAL_EPOCHS + 1):
         print()

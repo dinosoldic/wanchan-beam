@@ -7,13 +7,13 @@ from torch import Tensor, nn
 from torch.utils.data import DataLoader, WeightedRandomSampler
 
 from datasets.tsinghua_dogs import (
-    TRAINING_AUGMENTATION,
     TRAIN_SPLIT_PATH,
     VALIDATION_SPLIT_PATH,
     TsinghuaDogsDataset,
+    build_training_augmentation,
     build_breed_mapping,
-    load_split_paths,
     get_breed_name,
+    load_split_paths,
 )
 
 from training.breed_classifier import build_breed_classifier
@@ -296,12 +296,6 @@ def main() -> None:
 
     model = build_breed_classifier().to(device)
 
-    print(f"Training device: {device}")
-    print(f"Training mode: {'debug' if DEBUG_MODE else 'full'}")
-
-    if device.type == "cuda":
-        print(f"GPU: {torch.cuda.get_device_name(device)}")
-
     mixed_precision_enabled = device.type == "cuda"
 
     gradient_scaler = torch.amp.GradScaler(
@@ -318,10 +312,14 @@ def main() -> None:
     train_paths = load_split_paths(TRAIN_SPLIT_PATH)
     breed_names, breed_to_id = build_breed_mapping(train_paths)
 
+    training_augmentation = build_training_augmentation(
+        use_geometric_augmentation=False,
+    )
+
     train_dataset = TsinghuaDogsDataset(
         train_paths,
         breed_to_id,
-        image_augmentation=TRAINING_AUGMENTATION,
+        image_augmentation=training_augmentation,
     )
 
     # Use a fixed random seed for the sampler to ensure reproducibility across runs.
@@ -372,6 +370,7 @@ def main() -> None:
 
     starting_epoch = 1
     best_validation_loss = float("inf")
+    checkpoint_status = "No training checkpoint found; starting a fresh run"
 
     if RESUME_FROM_CHECKPOINT and latest_checkpoint_path.exists():
         completed_epoch, best_validation_loss, _ = load_training_checkpoint(
@@ -385,8 +384,24 @@ def main() -> None:
         )
 
         starting_epoch = completed_epoch + 1
+        checkpoint_status = f"Resuming after epoch {completed_epoch}"
 
-        print(f"Resuming after epoch {completed_epoch}")
+    device_description = device.type
+    if device.type == "cuda":
+        device_description += f" ({torch.cuda.get_device_name(device)})"
+
+    print(f"Training mode: {'debug' if DEBUG_MODE else 'full'}")
+    print(f"Training device: {device_description}")
+    print(
+        f"Data: {len(train_dataset):,} training samples "
+        f"({len(train_data_loader):,} batches), "
+        f"{len(validation_dataset):,} validation samples "
+        f"({len(validation_data_loader):,} batches)"
+    )
+    print(f"Optimizer: learning rate={LEARNING_RATE}, weight decay={WEIGHT_DECAY}")
+    print("Geometric augmentation: False")
+    print(f"Mixed precision: {mixed_precision_enabled}")
+    print(f"Checkpoint: {checkpoint_status}")
 
     # training loop
     for epoch_number in range(starting_epoch, TOTAL_EPOCHS + 1):

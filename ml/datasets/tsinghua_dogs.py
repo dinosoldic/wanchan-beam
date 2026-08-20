@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from PIL import Image
-from torch import Tensor
+from torch import Tensor, nn
 from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms
 from torchvision.transforms import InterpolationMode
@@ -26,44 +26,6 @@ IMAGENET_MEAN_RGB = (124, 116, 104)
 IMAGENET_MEAN: list[float] = [0.485, 0.456, 0.406]
 IMAGENET_STANDARD_DEVIATION: list[float] = [0.229, 0.224, 0.225]
 
-TRAINING_AUGMENTATION = transforms.Compose(
-    [
-        transforms.RandomHorizontalFlip(p=0.5),
-        transforms.RandomApply(
-            [
-                transforms.RandomAffine(
-                    degrees=8,
-                    translate=(0.04, 0.04),
-                    scale=(0.95, 1.05),
-                    interpolation=InterpolationMode.BILINEAR,
-                    fill=IMAGENET_MEAN_RGB,  # pyright: ignore[reportArgumentType]
-                ),
-            ],
-            p=0.5,
-        ),
-        transforms.ColorJitter(
-            brightness=0.15,
-            contrast=0.15,
-            saturation=0.10,
-            hue=0.02,
-        ),
-    ]
-)
-
-
-def load_split_paths(split_path: Path) -> list[Path]:
-    """Load dataset-relative image paths from an official split file."""
-    image_paths: list[Path] = []
-
-    # utf-8-sig removes the hidden BOM present at the start of these files.
-    for raw_line in split_path.read_text(encoding="utf-8-sig").splitlines():
-        relative_path = raw_line.strip().removeprefix(".//")
-
-        if relative_path:
-            image_paths.append(Path(relative_path))
-
-    return image_paths
-
 
 @dataclass(frozen=True)
 class BoundingBox:
@@ -81,6 +43,94 @@ class BoundingBox:
     @property
     def height(self) -> int:
         return self.ymax - self.ymin
+
+
+class TsinghuaDogsDataset(Dataset[tuple[Tensor, int]]):
+    """Load Tsinghua dog crops and their numeric breed labels on demand."""
+
+    def __init__(
+        self,
+        image_paths: list[Path],
+        breed_to_id: dict[str, int],
+        image_augmentation: Callable[[Image.Image], Image.Image] | None = None,
+    ) -> None:
+        self.image_paths = tuple(image_paths)
+        self.breed_to_id = breed_to_id
+        self.image_augmentation = image_augmentation
+
+    def __len__(self) -> int:
+        """Return the number of available training examples."""
+
+        return len(self.image_paths)
+
+    def __getitem__(self, index: int) -> tuple[Tensor, int]:
+        """Load and preprocess one dog using its dataset index."""
+
+        relative_image_path = self.image_paths[index]
+        breed_name = get_breed_name(relative_image_path)
+        breed_id = self.breed_to_id[breed_name]
+
+        dog_crop = load_dog_crop(relative_image_path)
+
+        if self.image_augmentation is not None:
+            dog_crop = self.image_augmentation(dog_crop)
+
+        model_input = resize_with_padding(dog_crop)
+        image_tensor = image_to_normalized_tensor(model_input)
+
+        return image_tensor, breed_id
+
+
+def build_training_augmentation(
+    *,
+    use_geometric_augmentation: bool,
+) -> transforms.Compose:
+    """Build the training transforms with optional geometric variation."""
+
+    augmentation_steps: list[nn.Module] = [
+        transforms.RandomHorizontalFlip(p=0.5),
+    ]
+
+    if use_geometric_augmentation:
+        augmentation_steps.append(
+            transforms.RandomApply(
+                [
+                    transforms.RandomAffine(
+                        degrees=8,
+                        translate=(0.04, 0.04),
+                        scale=(0.95, 1.05),
+                        interpolation=InterpolationMode.BILINEAR,
+                        fill=IMAGENET_MEAN_RGB,  # pyright: ignore[reportArgumentType]
+                    ),
+                ],
+                p=0.5,
+            )
+        )
+
+    augmentation_steps.append(
+        transforms.ColorJitter(
+            brightness=0.15,
+            contrast=0.15,
+            saturation=0.10,
+            hue=0.02,
+        )
+    )
+
+    return transforms.Compose(augmentation_steps)
+
+
+def load_split_paths(split_path: Path) -> list[Path]:
+    """Load dataset-relative image paths from an official split file."""
+    image_paths: list[Path] = []
+
+    # utf-8-sig removes the hidden BOM present at the start of these files.
+    for raw_line in split_path.read_text(encoding="utf-8-sig").splitlines():
+        relative_path = raw_line.strip().removeprefix(".//")
+
+        if relative_path:
+            image_paths.append(Path(relative_path))
+
+    return image_paths
 
 
 def require_coordinate(
@@ -238,42 +288,6 @@ def image_to_normalized_tensor(image: Image.Image) -> Tensor:
     )
 
 
-class TsinghuaDogsDataset(Dataset[tuple[Tensor, int]]):
-    """Load Tsinghua dog crops and their numeric breed labels on demand."""
-
-    def __init__(
-        self,
-        image_paths: list[Path],
-        breed_to_id: dict[str, int],
-        image_augmentation: Callable[[Image.Image], Image.Image] | None = None,
-    ) -> None:
-        self.image_paths = tuple(image_paths)
-        self.breed_to_id = breed_to_id
-        self.image_augmentation = image_augmentation
-
-    def __len__(self) -> int:
-        """Return the number of available training examples."""
-
-        return len(self.image_paths)
-
-    def __getitem__(self, index: int) -> tuple[Tensor, int]:
-        """Load and preprocess one dog using its dataset index."""
-
-        relative_image_path = self.image_paths[index]
-        breed_name = get_breed_name(relative_image_path)
-        breed_id = self.breed_to_id[breed_name]
-
-        dog_crop = load_dog_crop(relative_image_path)
-
-        if self.image_augmentation is not None:
-            dog_crop = self.image_augmentation(dog_crop)
-
-        model_input = resize_with_padding(dog_crop)
-        image_tensor = image_to_normalized_tensor(model_input)
-
-        return image_tensor, breed_id
-
-
 if __name__ == "__main__":
     validation_paths = load_split_paths(VALIDATION_SPLIT_PATH)
 
@@ -291,10 +305,14 @@ if __name__ == "__main__":
 
     model_tensor = image_to_normalized_tensor(model_input)
 
+    training_augmentation = build_training_augmentation(
+        use_geometric_augmentation=False,
+    )
+
     train_dataset = TsinghuaDogsDataset(
         train_paths,
         breed_to_id,
-        image_augmentation=TRAINING_AUGMENTATION,
+        image_augmentation=training_augmentation,
     )
 
     dataset_tensor, dataset_breed_id = train_dataset[0]

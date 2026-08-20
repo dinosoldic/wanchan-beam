@@ -6,8 +6,8 @@ from PIL import Image, ImageDraw
 
 from datasets.tsinghua_dogs import (
     IMAGENET_MEAN_RGB,
-    TRAINING_AUGMENTATION,
     TRAIN_SPLIT_PATH,
+    build_training_augmentation,
     load_dog_crop,
     load_split_paths,
     resize_with_padding,
@@ -47,6 +47,9 @@ def main() -> None:
 
     training_paths = load_split_paths(TRAIN_SPLIT_PATH)
     dog_crop = load_dog_crop(training_paths[SAMPLE_INDEX])
+    preview_augmentation = build_training_augmentation(
+        use_geometric_augmentation=True,
+    )
 
     preview_images = [
         create_labeled_tile(
@@ -56,7 +59,7 @@ def main() -> None:
     ]
 
     for variant_number in range(1, AUGMENTED_VARIANTS + 1):
-        augmented_crop = TRAINING_AUGMENTATION(dog_crop.copy())
+        augmented_crop = preview_augmentation(dog_crop.copy())
         model_input = resize_with_padding(augmented_crop)
 
         preview_images.append(
