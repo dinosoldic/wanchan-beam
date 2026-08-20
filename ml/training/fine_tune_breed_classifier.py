@@ -31,7 +31,7 @@ from training.train_breed_classifier import (
 ML_ROOT = Path(__file__).resolve().parents[1]
 CHECKPOINT_DIRECTORY = ML_ROOT / "artifacts" / "classifier" / "checkpoints"
 
-EXPERIMENT_NAME = "1module-clr-5e-5-flr-5e-6-cosine-ls-0.02-affine-wd-1e-2-dropout-0"
+EXPERIMENT_NAME = "1module-clr-5e-5-flr-5e-6-cosine-ls-0.02-affine-wd-1e-2-dropout-0.4"
 
 BASELINE_CHECKPOINT_PATH = CHECKPOINT_DIRECTORY / "head-baseline-best.pt"
 FINE_TUNE_LATEST_CHECKPOINT_PATH = (
@@ -62,7 +62,7 @@ FEATURE_LEARNING_RATE = 0.000005
 WEIGHT_DECAY = 0.01
 LABEL_SMOOTHING = 0.02
 USE_GEOMETRIC_AUGMENTATION = True
-DROPOUT_PROBABILITY = 0.0
+DROPOUT_PROBABILITY = 0.4
 
 
 ### funcs
