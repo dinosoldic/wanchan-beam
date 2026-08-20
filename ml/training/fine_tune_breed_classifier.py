@@ -308,9 +308,7 @@ def main() -> None:
     for epoch_number in range(starting_epoch, TOTAL_EPOCHS + 1):
         print()
         print(f"Epoch {epoch_number}/{TOTAL_EPOCHS}")
-        learning_rate_description = (
-            f"classifier={optimizer.param_groups[0]['lr']:.2e}"
-        )
+        learning_rate_description = f"classifier={optimizer.param_groups[0]['lr']:.2e}"
         if feature_parameter_group:
             learning_rate_description += (
                 f", features={optimizer.param_groups[1]['lr']:.2e}"

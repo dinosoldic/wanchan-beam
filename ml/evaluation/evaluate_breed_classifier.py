@@ -3,6 +3,7 @@
 import argparse
 from collections.abc import Iterable
 from pathlib import Path
+from dataclasses import dataclass
 
 import torch
 from torch import nn, Tensor
@@ -19,6 +20,45 @@ from training.breed_classifier import build_breed_classifier
 
 EVALUATION_BATCH_SIZE = 64
 NUM_WORKERS = 4
+
+
+@dataclass(frozen=True)
+class EvaluationResult:
+    """Metrics and predictions collected over the complete validation set."""
+
+    loss: float
+    top_one_accuracy: float
+    top_two_accuracy: float
+    true_breed_ids: tuple[int, ...]
+    predicted_breed_ids: tuple[int, ...]
+
+
+@dataclass(frozen=True)
+class BreedAccuracy:
+    """Top-1 validation accuracy for one breed."""
+
+    breed_id: int
+    breed_name: str
+    correct_predictions: int
+    total_examples: int
+
+    @property
+    def accuracy(self) -> float:
+        return self.correct_predictions / self.total_examples
+
+
+@dataclass(frozen=True)
+class BreedConfusion:
+    """One incorrect true-breed and predicted-breed combination."""
+
+    true_breed_name: str
+    predicted_breed_name: str
+    incorrect_predictions: int
+    true_breed_examples: int
+
+    @property
+    def error_rate(self) -> float:
+        return self.incorrect_predictions / self.true_breed_examples
 
 
 def parse_checkpoint_path() -> Path:
@@ -80,7 +120,7 @@ def evaluate_model(
     model: nn.Module,
     data_loader: Iterable[tuple[Tensor, Tensor]],
     device: torch.device,
-) -> tuple[float, float, float]:
+) -> EvaluationResult:
     """Calculate validation loss and top-one/top-two accuracy."""
 
     loss_function = nn.CrossEntropyLoss()
@@ -89,6 +129,8 @@ def evaluate_model(
     correct_top_one = 0
     correct_top_two = 0
     processed_examples = 0
+    true_breed_ids: list[int] = []
+    predicted_breed_ids: list[int] = []
 
     model.eval()
 
@@ -115,7 +157,15 @@ def evaluate_model(
                 dim=1,
             ).indices
 
-            correct_top_one += (top_two_breed_ids[:, 0] == batch_breed_ids).sum().item()
+            predicted_top_one_ids = top_two_breed_ids[:, 0]
+            true_breed_ids.extend(
+                int(breed_id) for breed_id in batch_breed_ids.cpu().tolist()
+            )
+            predicted_breed_ids.extend(
+                int(breed_id) for breed_id in predicted_top_one_ids.cpu().tolist()
+            )
+
+            correct_top_one += (predicted_top_one_ids == batch_breed_ids).sum().item()
 
             correct_top_two += (
                 (top_two_breed_ids == batch_breed_ids.unsqueeze(1))
@@ -131,10 +181,108 @@ def evaluate_model(
     if processed_examples == 0:
         raise ValueError("Evaluation did not receive any examples")
 
-    return (
-        total_loss / processed_examples,
-        correct_top_one / processed_examples,
-        correct_top_two / processed_examples,
+    return EvaluationResult(
+        loss=total_loss / processed_examples,
+        top_one_accuracy=correct_top_one / processed_examples,
+        top_two_accuracy=correct_top_two / processed_examples,
+        true_breed_ids=tuple(true_breed_ids),
+        predicted_breed_ids=tuple(predicted_breed_ids),
+    )
+
+
+def build_confusion_matrix(
+    evaluation_result: EvaluationResult,
+    number_of_breeds: int,
+) -> Tensor:
+    """Count every true-breed and predicted-breed combination."""
+
+    if len(evaluation_result.true_breed_ids) != len(
+        evaluation_result.predicted_breed_ids
+    ):
+        raise ValueError("True and predicted breed ID counts do not match")
+
+    confusion_matrix = torch.zeros(
+        (number_of_breeds, number_of_breeds),
+        dtype=torch.int64,
+    )
+
+    for true_breed_id, predicted_breed_id in zip(
+        evaluation_result.true_breed_ids,
+        evaluation_result.predicted_breed_ids,
+        strict=True,
+    ):
+        confusion_matrix[true_breed_id, predicted_breed_id] += 1
+
+    return confusion_matrix
+
+
+def calculate_breed_accuracies(
+    confusion_matrix: Tensor,
+    breed_names: tuple[str, ...],
+) -> tuple[BreedAccuracy, ...]:
+    """Calculate top-1 accuracy independently for every breed."""
+
+    if tuple(confusion_matrix.shape) != (len(breed_names), len(breed_names)):
+        raise ValueError("Confusion matrix shape does not match the breed count")
+
+    breed_accuracies: list[BreedAccuracy] = []
+
+    for breed_id, breed_name in enumerate(breed_names):
+        total_examples = int(confusion_matrix[breed_id].sum().item())
+        correct_predictions = int(confusion_matrix[breed_id, breed_id].item())
+
+        if total_examples == 0:
+            raise ValueError(f"Breed has no validation examples: {breed_name}")
+
+        breed_accuracies.append(
+            BreedAccuracy(
+                breed_id=breed_id,
+                breed_name=breed_name,
+                correct_predictions=correct_predictions,
+                total_examples=total_examples,
+            )
+        )
+
+    return tuple(breed_accuracies)
+
+
+def find_common_confusions(
+    confusion_matrix: Tensor,
+    breed_names: tuple[str, ...],
+) -> tuple[BreedConfusion, ...]:
+    """Return incorrect breed pairs ordered by their frequency."""
+
+    confusions: list[BreedConfusion] = []
+
+    for true_breed_id, true_breed_name in enumerate(breed_names):
+        true_breed_examples = int(confusion_matrix[true_breed_id].sum().item())
+
+        for predicted_breed_id, predicted_breed_name in enumerate(breed_names):
+            if predicted_breed_id == true_breed_id:
+                continue
+
+            incorrect_predictions = int(
+                confusion_matrix[true_breed_id, predicted_breed_id].item()
+            )
+
+            if incorrect_predictions == 0:
+                continue
+
+            confusions.append(
+                BreedConfusion(
+                    true_breed_name=true_breed_name,
+                    predicted_breed_name=predicted_breed_name,
+                    incorrect_predictions=incorrect_predictions,
+                    true_breed_examples=true_breed_examples,
+                )
+            )
+
+    return tuple(
+        sorted(
+            confusions,
+            key=lambda confusion: confusion.incorrect_predictions,
+            reverse=True,
+        )
     )
 
 
@@ -169,10 +317,30 @@ def main() -> None:
         persistent_workers=NUM_WORKERS > 0,
     )
 
-    validation_loss, top_one_accuracy, top_two_accuracy = evaluate_model(
+    evaluation_result = evaluate_model(
         model=model,
         data_loader=validation_data_loader,
         device=device,
+    )
+
+    confusion_matrix = build_confusion_matrix(
+        evaluation_result=evaluation_result,
+        number_of_breeds=len(breed_names),
+    )
+
+    breed_accuracies = calculate_breed_accuracies(
+        confusion_matrix=confusion_matrix,
+        breed_names=breed_names,
+    )
+
+    lowest_breed_accuracies = sorted(
+        breed_accuracies,
+        key=lambda breed_result: breed_result.accuracy,
+    )[:10]
+
+    common_confusions = find_common_confusions(
+        confusion_matrix=confusion_matrix,
+        breed_names=breed_names,
     )
 
     print(f"Checkpoint: {checkpoint_path.resolve()}")
@@ -182,9 +350,37 @@ def main() -> None:
     print("Saved top-1 accuracy: " f"{checkpoint['validation_accuracy']:.2%}")
 
     print()
-    print(f"Recalculated validation loss: {validation_loss:.4f}")
-    print(f"Recalculated top-1 accuracy: {top_one_accuracy:.2%}")
-    print(f"Top-2 accuracy: {top_two_accuracy:.2%}")
+    print(f"Recalculated validation loss: {evaluation_result.loss:.4f}")
+    print(f"Recalculated top-1 accuracy: {evaluation_result.top_one_accuracy:.2%}")
+    print(f"Top-2 accuracy: {evaluation_result.top_two_accuracy:.2%}")
+
+    print()
+    print(f"Confusion matrix shape: {tuple(confusion_matrix.shape)}")
+    print(f"Predictions in matrix: {confusion_matrix.sum().item():,}")
+    print(
+        f"Correct predictions in matrix: {confusion_matrix.diagonal().sum().item():,}"
+    )
+
+    print()
+    print("Lowest top-1 breed accuracies:")
+
+    for breed_result in lowest_breed_accuracies:
+        print(
+            f"  {breed_result.breed_name}: "
+            f"{breed_result.accuracy:.2%} "
+            f"({breed_result.correct_predictions}/{breed_result.total_examples})"
+        )
+
+    print()
+    print("Most common breed confusions:")
+    for confusion in common_confusions[:15]:
+        print(
+            f"  {confusion.true_breed_name} -> "
+            f"{confusion.predicted_breed_name}: "
+            f"{confusion.incorrect_predictions}/"
+            f"{confusion.true_breed_examples} "
+            f"({confusion.error_rate:.2%})"
+        )
 
 
 if __name__ == "__main__":
