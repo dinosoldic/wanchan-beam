@@ -14,35 +14,69 @@ def build_breed_classifier(
     number_of_breeds: int = NUMBER_OF_BREEDS,
     use_pretrained_weights: bool = True,
     dropout_probability: float = 0.2,
+    classifier_hidden_features: int | None = 1280,
 ) -> MobileNetV3:
-    """Build MobileNetV3 for training or loading a saved checkpoint."""
-
-    weights = MobileNet_V3_Large_Weights.DEFAULT if use_pretrained_weights else None
-    model = mobilenet_v3_large(weights=weights)
+    """Build MobileNetV3 with a configurable breed-classification head."""
 
     if not 0.0 <= dropout_probability < 1.0:
         raise ValueError("Dropout probability must be between 0 and 1")
 
-    dropout_layer = model.classifier[2]
+    if classifier_hidden_features is not None and classifier_hidden_features <= 0:
+        raise ValueError("Classifier hidden features must be positive or None")
 
-    if not isinstance(dropout_layer, nn.Dropout):
+    weights = MobileNet_V3_Large_Weights.DEFAULT if use_pretrained_weights else None
+    model = mobilenet_v3_large(weights=weights)
+
+    original_input_layer = model.classifier[0]
+    original_dropout_layer = model.classifier[2]
+    original_output_layer = model.classifier[-1]
+
+    if not isinstance(original_input_layer, nn.Linear):
+        raise TypeError("Expected MobileNetV3 classifier[0] to be linear")
+
+    if not isinstance(original_dropout_layer, nn.Dropout):
         raise TypeError("Expected MobileNetV3 classifier[2] to be dropout")
 
-    dropout_layer.p = dropout_probability
+    if not isinstance(original_output_layer, nn.Linear):
+        raise TypeError("Expected MobileNetV3's final classifier layer to be linear")
 
     # Preserve the pretrained features during the first training phase.
     for parameter in model.parameters():
         parameter.requires_grad = False
 
-    original_output_layer = model.classifier[-1]
+    if classifier_hidden_features is None:
+        # Test whether the backbone features are already linearly separable.
+        model.classifier = nn.Sequential(
+            nn.Linear(
+                in_features=original_input_layer.in_features,
+                out_features=number_of_breeds,
+            ),
+        )
+    elif classifier_hidden_features == original_input_layer.out_features:
+        # Keep MobileNetV3's pretrained 960 -> 1280 projection.
+        original_dropout_layer.p = dropout_probability
 
-    if not isinstance(original_output_layer, nn.Linear):
-        raise TypeError("Expected MobileNetV3's final classifier layer to be linear")
-
-    model.classifier[-1] = nn.Linear(
-        in_features=original_output_layer.in_features,
-        out_features=number_of_breeds,
-    )
+        model.classifier[-1] = nn.Linear(
+            in_features=original_output_layer.in_features,
+            out_features=number_of_breeds,
+        )
+    else:
+        # A different hidden size requires a completely new classifier head.
+        model.classifier = nn.Sequential(
+            nn.Linear(
+                in_features=original_input_layer.in_features,
+                out_features=classifier_hidden_features,
+            ),
+            nn.Hardswish(inplace=True),
+            nn.Dropout(
+                p=dropout_probability,
+                inplace=original_dropout_layer.inplace,
+            ),
+            nn.Linear(
+                in_features=classifier_hidden_features,
+                out_features=number_of_breeds,
+            ),
+        )
 
     return model
 

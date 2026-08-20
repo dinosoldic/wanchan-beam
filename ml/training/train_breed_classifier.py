@@ -36,6 +36,12 @@ BATCH_LOG_INTERVAL = 1 if DEBUG_MODE else 50
 LEARNING_RATE = 0.001
 WEIGHT_DECAY = 0.0001
 
+CLASSIFIER_HIDDEN_FEATURES: int | None = None
+DROPOUT_PROBABILITY = 0.4
+HEAD_EXPERIMENT_NAME = "head-linear"
+
+RUN_NAME = f"{HEAD_EXPERIMENT_NAME}-debug" if DEBUG_MODE else HEAD_EXPERIMENT_NAME
+
 
 ### funcs
 def select_device() -> torch.device:
@@ -294,7 +300,11 @@ def main() -> None:
             "Full training mode requires CUDA. Enable DEBUG_MODE for CPU testing."
         )
 
-    model = build_breed_classifier().to(device)
+    model = build_breed_classifier(
+        use_pretrained_weights=True,
+        dropout_probability=DROPOUT_PROBABILITY,
+        classifier_hidden_features=CLASSIFIER_HIDDEN_FEATURES,
+    ).to(device)
 
     mixed_precision_enabled = device.type == "cuda"
 
@@ -365,8 +375,8 @@ def main() -> None:
     )
 
     # check if checkpoint exists and load
-    latest_checkpoint_path = CHECKPOINT_DIRECTORY / "latest.pt"
-    best_checkpoint_path = CHECKPOINT_DIRECTORY / "best.pt"
+    latest_checkpoint_path = CHECKPOINT_DIRECTORY / f"{RUN_NAME}-latest.pt"
+    best_checkpoint_path = CHECKPOINT_DIRECTORY / f"{RUN_NAME}-best.pt"
 
     starting_epoch = 1
     best_validation_loss = float("inf")
@@ -402,6 +412,9 @@ def main() -> None:
     print("Geometric augmentation: False")
     print(f"Mixed precision: {mixed_precision_enabled}")
     print(f"Checkpoint: {checkpoint_status}")
+
+    print(f"Head experiment: {HEAD_EXPERIMENT_NAME}")
+    print(f"Classifier hidden features: {CLASSIFIER_HIDDEN_FEATURES}")
 
     # training loop
     for epoch_number in range(starting_epoch, TOTAL_EPOCHS + 1):
