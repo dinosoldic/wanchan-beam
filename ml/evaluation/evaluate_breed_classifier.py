@@ -1,7 +1,8 @@
-"""Evaluate the best saved dog-breed classifier."""
+"""Evaluate a saved dog-breed classifier checkpoint."""
 
-from pathlib import Path
+import argparse
 from collections.abc import Iterable
+from pathlib import Path
 
 import torch
 from torch import nn, Tensor
@@ -16,10 +17,28 @@ from datasets.tsinghua_dogs import (
 )
 from training.breed_classifier import build_breed_classifier
 
-ML_ROOT = Path(__file__).resolve().parents[1]
-BEST_CHECKPOINT_PATH = ML_ROOT / "artifacts" / "classifier" / "checkpoints" / "best.pt"
 EVALUATION_BATCH_SIZE = 64
 NUM_WORKERS = 4
+
+
+def parse_checkpoint_path() -> Path:
+    """Read and validate the checkpoint path supplied on the command line."""
+
+    parser = argparse.ArgumentParser(
+        description="Evaluate a trained dog-breed classifier checkpoint."
+    )
+    parser.add_argument(
+        "checkpoint_path",
+        type=Path,
+        help="Path to the .pt checkpoint to evaluate",
+    )
+    arguments = parser.parse_args()
+    checkpoint_path: Path = arguments.checkpoint_path
+
+    if not checkpoint_path.is_file():
+        raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
+
+    return checkpoint_path
 
 
 def select_device() -> torch.device:
@@ -28,12 +47,12 @@ def select_device() -> torch.device:
     return torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
-def load_best_model(
+def load_model_checkpoint(
     checkpoint_path: Path,
     expected_breed_names: tuple[str, ...],
     device: torch.device,
 ) -> tuple[nn.Module, dict]:
-    """Load the best complete model and verify its breed ordering."""
+    """Load a complete model checkpoint and verify its breed ordering."""
 
     checkpoint = torch.load(
         checkpoint_path,
@@ -120,15 +139,16 @@ def evaluate_model(
 
 
 def main() -> None:
-    """Load and inspect the best classifier checkpoint."""
+    """Load and evaluate the classifier checkpoint selected by the user."""
 
+    checkpoint_path = parse_checkpoint_path()
     device = select_device()
 
     training_paths = load_split_paths(TRAIN_SPLIT_PATH)
     breed_names, breed_to_id = build_breed_mapping(training_paths)
 
-    model, checkpoint = load_best_model(
-        checkpoint_path=BEST_CHECKPOINT_PATH,
+    model, checkpoint = load_model_checkpoint(
+        checkpoint_path=checkpoint_path,
         expected_breed_names=breed_names,
         device=device,
     )
@@ -155,6 +175,7 @@ def main() -> None:
         device=device,
     )
 
+    print(f"Checkpoint: {checkpoint_path.resolve()}")
     print(f"Evaluation device: {device}")
     print(f"Checkpoint epoch: {checkpoint['epoch']}")
     print(f"Saved validation loss: {checkpoint['validation_loss']:.4f}")

@@ -31,7 +31,7 @@ from training.train_breed_classifier import (
 ML_ROOT = Path(__file__).resolve().parents[1]
 CHECKPOINT_DIRECTORY = ML_ROOT / "artifacts" / "classifier" / "checkpoints"
 
-EXPERIMENT_NAME = "classifier-only-classifier-lr-1e-4"
+EXPERIMENT_NAME = "1module-clr-5e-5-flr-5e-6-cosine"
 
 BASELINE_CHECKPOINT_PATH = CHECKPOINT_DIRECTORY / "head-baseline-best.pt"
 FINE_TUNE_LATEST_CHECKPOINT_PATH = (
@@ -45,7 +45,7 @@ FINE_TUNE_BEST_ACCURACY_CHECKPOINT_PATH = (
     CHECKPOINT_DIRECTORY / f"fine-tune-{EXPERIMENT_NAME}-best-accuracy.pt"
 )
 
-NUMBER_OF_FEATURE_MODULES_TO_UNFREEZE = 0
+NUMBER_OF_FEATURE_MODULES_TO_UNFREEZE = 1
 
 BATCH_SIZE = 64
 NUMBER_OF_WORKERS = 4
@@ -57,8 +57,8 @@ RESUME_FROM_CHECKPOINT = True
 
 # The classifier can adapt faster, while the pretrained feature extractor uses a
 # smaller learning rate to avoid destroying useful ImageNet features.
-CLASSIFIER_LEARNING_RATE = 0.0001
-FEATURE_LEARNING_RATE = 0.00001
+CLASSIFIER_LEARNING_RATE = 0.00005
+FEATURE_LEARNING_RATE = 0.000005
 WEIGHT_DECAY = 0.0001
 
 
@@ -204,6 +204,14 @@ def main() -> None:
             weight_decay=WEIGHT_DECAY,
         )
 
+    # Reduce both learning rates smoothly after each epoch so later updates
+    # refine the model without moving far from its best pretrained features.
+    learning_rate_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+        optimizer,
+        T_max=TOTAL_EPOCHS,
+        eta_min=0.0,
+    )
+
     loss_function = nn.CrossEntropyLoss()
 
     # Mixed precision reduces GPU memory use and generally speeds up CUDA training.
@@ -217,16 +225,22 @@ def main() -> None:
     starting_epoch = 1
     best_validation_loss = float("inf")
     best_validation_accuracy = 0.0
-    epochs_without_accuracy_improvement = 0
+    epochs_without_metric_improvement = 0
 
     if RESUME_FROM_CHECKPOINT and FINE_TUNE_LATEST_CHECKPOINT_PATH.exists():
-        completed_epoch, best_validation_loss = load_training_checkpoint(
+        (
+            completed_epoch,
+            best_validation_loss,
+            epochs_without_metric_improvement,
+        ) = load_training_checkpoint(
             checkpoint_path=FINE_TUNE_LATEST_CHECKPOINT_PATH,
             model=model,
             optimizer=optimizer,
             gradient_scaler=gradient_scaler,
             expected_breed_names=breed_names,
             device=device,
+            learning_rate_scheduler=learning_rate_scheduler,
+            sampler_generator=sampler_generator,
         )
 
         starting_epoch = completed_epoch + 1
@@ -294,6 +308,14 @@ def main() -> None:
     for epoch_number in range(starting_epoch, TOTAL_EPOCHS + 1):
         print()
         print(f"Epoch {epoch_number}/{TOTAL_EPOCHS}")
+        learning_rate_description = (
+            f"classifier={optimizer.param_groups[0]['lr']:.2e}"
+        )
+        if feature_parameter_group:
+            learning_rate_description += (
+                f", features={optimizer.param_groups[1]['lr']:.2e}"
+            )
+        print(f"Learning rates: {learning_rate_description}")
 
         # Train on the complete balanced training set.
         average_training_loss = train_one_epoch(
@@ -318,7 +340,18 @@ def main() -> None:
         print(f"Validation loss: {validation_loss:.4f}")
         print(f"Validation accuracy: {validation_accuracy:.2%}")
 
+        # Advance the cosine schedule after completing the current epoch.
+        learning_rate_scheduler.step()
+
         validation_improved = validation_loss < best_validation_loss
+        accuracy_improved = validation_accuracy > best_validation_accuracy
+
+        # Continue while either metric finds a better trade-off. Loss measures
+        # confidence quality, while accuracy measures the final class decision.
+        if validation_improved or accuracy_improved:
+            epochs_without_metric_improvement = 0
+        else:
+            epochs_without_metric_improvement += 1
 
         if validation_improved:
             best_validation_loss = validation_loss
@@ -333,6 +366,9 @@ def main() -> None:
                 validation_loss=validation_loss,
                 validation_accuracy=validation_accuracy,
                 best_validation_loss=best_validation_loss,
+                learning_rate_scheduler=learning_rate_scheduler,
+                sampler_generator=sampler_generator,
+                early_stopping_counter=epochs_without_metric_improvement,
             )
 
             print(
@@ -341,11 +377,8 @@ def main() -> None:
             )
 
         # Accuracy and loss can favor different epochs, so preserve both.
-        accuracy_improved = validation_accuracy > best_validation_accuracy
-
         if accuracy_improved:
             best_validation_accuracy = validation_accuracy
-            epochs_without_accuracy_improvement = 0
 
             save_training_checkpoint(
                 checkpoint_path=FINE_TUNE_BEST_ACCURACY_CHECKPOINT_PATH,
@@ -357,15 +390,15 @@ def main() -> None:
                 validation_loss=validation_loss,
                 validation_accuracy=validation_accuracy,
                 best_validation_loss=best_validation_loss,
+                learning_rate_scheduler=learning_rate_scheduler,
+                sampler_generator=sampler_generator,
+                early_stopping_counter=epochs_without_metric_improvement,
             )
 
             print(
                 "Saved new best-accuracy checkpoint: "
                 f"{FINE_TUNE_BEST_ACCURACY_CHECKPOINT_PATH}"
             )
-        else:
-            epochs_without_accuracy_improvement += 1
-
         # Latest is always saved so an interrupted run can resume.
         save_training_checkpoint(
             checkpoint_path=FINE_TUNE_LATEST_CHECKPOINT_PATH,
@@ -377,6 +410,9 @@ def main() -> None:
             validation_loss=validation_loss,
             validation_accuracy=validation_accuracy,
             best_validation_loss=best_validation_loss,
+            learning_rate_scheduler=learning_rate_scheduler,
+            sampler_generator=sampler_generator,
+            early_stopping_counter=epochs_without_metric_improvement,
         )
 
         print(
@@ -384,9 +420,9 @@ def main() -> None:
             f"{FINE_TUNE_LATEST_CHECKPOINT_PATH}"
         )
 
-        if epochs_without_accuracy_improvement >= EARLY_STOPPING_PATIENCE:
+        if epochs_without_metric_improvement >= EARLY_STOPPING_PATIENCE:
             print(
-                "Early stopping: validation accuracy did not improve "
+                "Early stopping: neither validation loss nor accuracy improved "
                 f"for {EARLY_STOPPING_PATIENCE} consecutive epochs"
             )
             break

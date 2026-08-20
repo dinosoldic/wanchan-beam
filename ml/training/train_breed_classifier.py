@@ -194,6 +194,9 @@ def save_training_checkpoint(
     validation_loss: float,
     validation_accuracy: float,
     best_validation_loss: float,
+    learning_rate_scheduler: torch.optim.lr_scheduler.LRScheduler | None = None,
+    sampler_generator: torch.Generator | None = None,
+    early_stopping_counter: int = 0,
 ) -> None:
     """Save enough training state to resume from the current epoch."""
 
@@ -211,6 +214,15 @@ def save_training_checkpoint(
         "validation_loss": validation_loss,
         "validation_accuracy": validation_accuracy,
         "best_validation_loss": best_validation_loss,
+        "learning_rate_scheduler_state_dict": (
+            learning_rate_scheduler.state_dict()
+            if learning_rate_scheduler is not None
+            else None
+        ),
+        "sampler_generator_state": (
+            sampler_generator.get_state() if sampler_generator is not None else None
+        ),
+        "early_stopping_counter": early_stopping_counter,
     }
 
     torch.save(checkpoint, checkpoint_path)
@@ -223,8 +235,10 @@ def load_training_checkpoint(
     gradient_scaler: torch.amp.GradScaler,
     expected_breed_names: tuple[str, ...],
     device: torch.device,
-) -> tuple[int, float]:
-    """Restore training state and return the completed epoch and best validation loss."""
+    learning_rate_scheduler: torch.optim.lr_scheduler.LRScheduler | None = None,
+    sampler_generator: torch.Generator | None = None,
+) -> tuple[int, float, int]:
+    """Restore training state and return its epoch, best loss, and stop counter."""
 
     checkpoint = torch.load(
         checkpoint_path,
@@ -246,6 +260,17 @@ def load_training_checkpoint(
     if gradient_scaler.is_enabled() and scaler_state:
         gradient_scaler.load_state_dict(scaler_state)
 
+    # restore LR scheduler
+    scheduler_state = checkpoint.get("learning_rate_scheduler_state_dict")
+    if learning_rate_scheduler is not None and scheduler_state:
+        learning_rate_scheduler.load_state_dict(scheduler_state)
+
+    sampler_generator_state = checkpoint.get("sampler_generator_state")
+    if sampler_generator is not None and sampler_generator_state is not None:
+        # Checkpoints loaded onto CUDA may also move this byte tensor, but a
+        # CPU-based sampler generator requires its state to remain on the CPU.
+        sampler_generator.set_state(sampler_generator_state.cpu())
+
     best_validation_loss = float(
         checkpoint.get(
             "best_validation_loss",
@@ -253,7 +278,9 @@ def load_training_checkpoint(
         )
     )
 
-    return int(checkpoint["epoch"]), best_validation_loss
+    early_stopping_counter = int(checkpoint.get("early_stopping_counter", 0))
+
+    return int(checkpoint["epoch"]), best_validation_loss, early_stopping_counter
 
 
 def main() -> None:
@@ -347,13 +374,14 @@ def main() -> None:
     best_validation_loss = float("inf")
 
     if RESUME_FROM_CHECKPOINT and latest_checkpoint_path.exists():
-        completed_epoch, best_validation_loss = load_training_checkpoint(
+        completed_epoch, best_validation_loss, _ = load_training_checkpoint(
             checkpoint_path=latest_checkpoint_path,
             model=model,
             optimizer=optimizer,
             gradient_scaler=gradient_scaler,
             expected_breed_names=breed_names,
             device=device,
+            sampler_generator=sampler_generator,
         )
 
         starting_epoch = completed_epoch + 1
@@ -402,6 +430,7 @@ def main() -> None:
                 validation_loss=validation_loss,
                 validation_accuracy=validation_accuracy,
                 best_validation_loss=best_validation_loss,
+                sampler_generator=sampler_generator,
             )
 
             print(f"Saved new best checkpoint: {best_checkpoint_path}")
@@ -417,6 +446,7 @@ def main() -> None:
             validation_loss=validation_loss,
             validation_accuracy=validation_accuracy,
             best_validation_loss=best_validation_loss,
+            sampler_generator=sampler_generator,
         )
 
         print(f"Saved checkpoint: {latest_checkpoint_path}")
