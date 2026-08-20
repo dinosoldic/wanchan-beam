@@ -1,15 +1,16 @@
 """Reusable helpers and dataset loader for Tsinghua Dogs."""
 
 import xml.etree.ElementTree as ET
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from PIL import Image
-from collections.abc import Callable
 
+from PIL import Image
 from torch import Tensor
-from torchvision.transforms import functional as transform_functional
 from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms
+from torchvision.transforms import InterpolationMode
+from torchvision.transforms import functional as transform_functional
 
 ML_ROOT = Path(__file__).resolve().parents[1]
 DATASET_ROOT = ML_ROOT / "data" / "tsinghua-dogs" / "raw"
@@ -28,6 +29,18 @@ IMAGENET_STANDARD_DEVIATION: list[float] = [0.229, 0.224, 0.225]
 TRAINING_AUGMENTATION = transforms.Compose(
     [
         transforms.RandomHorizontalFlip(p=0.5),
+        transforms.RandomApply(
+            [
+                transforms.RandomAffine(
+                    degrees=8,
+                    translate=(0.04, 0.04),
+                    scale=(0.95, 1.05),
+                    interpolation=InterpolationMode.BILINEAR,
+                    fill=IMAGENET_MEAN_RGB,  # pyright: ignore[reportArgumentType]
+                ),
+            ],
+            p=0.5,
+        ),
         transforms.ColorJitter(
             brightness=0.15,
             contrast=0.15,
