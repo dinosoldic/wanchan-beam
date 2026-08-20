@@ -31,9 +31,10 @@ from training.train_breed_classifier import (
 ML_ROOT = Path(__file__).resolve().parents[1]
 CHECKPOINT_DIRECTORY = ML_ROOT / "artifacts" / "classifier" / "checkpoints"
 
-EXPERIMENT_NAME = "1module-clr-5e-5-flr-5e-6-cosine-ls-0.02-affine-wd-1e-2-dropout-0.4"
+EXPERIMENT_NAME = "head-linear-1module-clr-5e-5-flr-5e-6-cosine-ls-0.02-affine-wd-1e-2"
 
-BASELINE_CHECKPOINT_PATH = CHECKPOINT_DIRECTORY / "head-baseline-best.pt"
+BASELINE_CHECKPOINT_PATH = CHECKPOINT_DIRECTORY / "head-linear-best.pt"
+
 FINE_TUNE_LATEST_CHECKPOINT_PATH = (
     CHECKPOINT_DIRECTORY / f"fine-tune-{EXPERIMENT_NAME}-latest.pt"
 )
@@ -46,6 +47,7 @@ FINE_TUNE_BEST_ACCURACY_CHECKPOINT_PATH = (
 )
 
 NUMBER_OF_FEATURE_MODULES_TO_UNFREEZE = 1
+CLASSIFIER_HIDDEN_FEATURES: int | None = None
 
 BATCH_SIZE = 64
 NUMBER_OF_WORKERS = 4
@@ -155,6 +157,7 @@ def main() -> None:
         number_of_breeds=len(breed_names),
         use_pretrained_weights=False,
         dropout_probability=DROPOUT_PROBABILITY,
+        classifier_hidden_features=CLASSIFIER_HIDDEN_FEATURES,
     ).to(device)
 
     model.load_state_dict(baseline_checkpoint["model_state_dict"])
@@ -296,6 +299,12 @@ def main() -> None:
         optimizer_description += f", feature lr={FEATURE_LEARNING_RATE}"
     optimizer_description += f", weight decay={WEIGHT_DECAY}"
 
+    dropout_description = (
+        "inactive (linear head)"
+        if CLASSIFIER_HIDDEN_FEATURES is None
+        else str(DROPOUT_PROBABILITY)
+    )
+
     ## debug info
     print(f"Experiment: {EXPERIMENT_NAME}")
     print(f"Fine-tuning device: {device_description}")
@@ -319,7 +328,8 @@ def main() -> None:
     print(f"Label smoothing: {LABEL_SMOOTHING}")
     print(f"Optimizer: {optimizer_description}")
     print(f"Mixed precision: {mixed_precision_enabled}")
-    print(f"Dropout probability: {DROPOUT_PROBABILITY}")
+    print(f"Dropout probability: {dropout_description}")
+    print(f"Classifier hidden features: {CLASSIFIER_HIDDEN_FEATURES}")
 
     for epoch_number in range(starting_epoch, TOTAL_EPOCHS + 1):
         print()
