@@ -76,6 +76,7 @@ def train_one_epoch(
     optimizer: torch.optim.Optimizer,
     gradient_scaler: torch.amp.GradScaler,
     device: torch.device,
+    train_unfrozen_batch_norm: bool = False,
     max_batches: int | None = None,
     log_interval: int = 1,
 ) -> float:
@@ -83,9 +84,17 @@ def train_one_epoch(
 
     model.train()
 
-    # Keep the frozen backbone's BatchNorm statistics unchanged.
+    # Frozen modules always retain their pretrained BatchNorm statistics. When
+    # enabled, BatchNorm inside an unfrozen module remains in training mode.
     for module in model.modules():
-        if isinstance(module, nn.BatchNorm2d):
+        if not isinstance(module, nn.BatchNorm2d):
+            continue
+
+        has_trainable_parameters = any(
+            parameter.requires_grad for parameter in module.parameters()
+        )
+
+        if not train_unfrozen_batch_norm or not has_trainable_parameters:
             module.eval()
 
     total_loss = 0.0

@@ -136,9 +136,7 @@ def load_model_checkpoint(
     if checkpoint_breed_names != expected_breed_names:
         raise ValueError("Checkpoint breed ordering does not match the current dataset")
 
-    model_input_size = int(
-        checkpoint.get("model_input_size", DEFAULT_MODEL_INPUT_SIZE)
-    )
+    model_input_size = int(checkpoint.get("model_input_size", DEFAULT_MODEL_INPUT_SIZE))
 
     if model_input_size <= 0:
         raise ValueError("Checkpoint model input size must be positive")
