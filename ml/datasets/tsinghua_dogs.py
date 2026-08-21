@@ -53,6 +53,7 @@ class TsinghuaDogsDataset(Dataset[tuple[Tensor, int]]):
         image_paths: list[Path],
         breed_to_id: dict[str, int],
         image_augmentation: Callable[[Image.Image], Image.Image] | None = None,
+        tensor_augmentation: Callable[[Tensor], Tensor] | None = None,
         model_input_size: int = MODEL_INPUT_SIZE,
     ) -> None:
         if model_input_size <= 0:
@@ -61,6 +62,7 @@ class TsinghuaDogsDataset(Dataset[tuple[Tensor, int]]):
         self.image_paths = tuple(image_paths)
         self.breed_to_id = breed_to_id
         self.image_augmentation = image_augmentation
+        self.tensor_augmentation = tensor_augmentation
         self.model_input_size = model_input_size
 
     def __len__(self) -> int:
@@ -85,6 +87,9 @@ class TsinghuaDogsDataset(Dataset[tuple[Tensor, int]]):
             output_size=self.model_input_size,
         )
         image_tensor = image_to_normalized_tensor(model_input)
+
+        if self.tensor_augmentation is not None:
+            image_tensor = self.tensor_augmentation(image_tensor)
 
         return image_tensor, breed_id
 
@@ -125,6 +130,26 @@ def build_training_augmentation(
     )
 
     return transforms.Compose(augmentation_steps)
+
+
+def build_training_tensor_augmentation(
+    *,
+    random_erasing_probability: float,
+) -> Callable[[Tensor], Tensor] | None:
+    """Build optional augmentations that require normalized image tensors."""
+
+    if not 0.0 <= random_erasing_probability <= 1.0:
+        raise ValueError("Random Erasing probability must be between 0 and 1")
+
+    if random_erasing_probability == 0.0:
+        return None
+
+    return transforms.RandomErasing(
+        p=random_erasing_probability,
+        scale=(0.02, 0.15),
+        ratio=(0.5, 2.0),
+        value=0,
+    )
 
 
 def load_split_paths(split_path: Path) -> list[Path]:

@@ -11,6 +11,7 @@ from datasets.tsinghua_dogs import (
     VALIDATION_SPLIT_PATH,
     TsinghuaDogsDataset,
     build_training_augmentation,
+    build_training_tensor_augmentation,
     build_breed_mapping,
     load_split_paths,
 )
@@ -32,8 +33,8 @@ ML_ROOT = Path(__file__).resolve().parents[1]
 CHECKPOINT_DIRECTORY = ML_ROOT / "artifacts" / "classifier" / "checkpoints"
 
 EXPERIMENT_NAME = (
-    "1module-clr-5e-5-flr-5e-6-cosine-ls-0-affine-"
-    "wd-1e-2-dropout-0.4-input-256-cutmix-a1.0"
+    "1module-clr-5e-5-flr-5e-6-cosine-ls-0.02-affine-"
+    "wd-1e-2-dropout-0.4-input-256-random-erasing-p0.25"
 )
 
 BASELINE_CHECKPOINT_PATH = CHECKPOINT_DIRECTORY / "head-baseline-best.pt"
@@ -65,13 +66,14 @@ RESUME_FROM_CHECKPOINT = True
 CLASSIFIER_LEARNING_RATE = 0.00005
 FEATURE_LEARNING_RATE = 0.000005
 WEIGHT_DECAY = 0.01
-LABEL_SMOOTHING = 0.0
+LABEL_SMOOTHING = 0.02
 USE_GEOMETRIC_AUGMENTATION = True
 DROPOUT_PROBABILITY = 0.4
 MODEL_INPUT_SIZE = 256
 TRAIN_UNFROZEN_BATCH_NORM = False
 MIXUP_ALPHA: float | None = None
-CUTMIX_ALPHA: float | None = 1.0
+CUTMIX_ALPHA: float | None = None
+RANDOM_ERASING_PROBABILITY = 0.25
 
 
 ### funcs
@@ -105,10 +107,15 @@ def main() -> None:
         use_geometric_augmentation=USE_GEOMETRIC_AUGMENTATION,
     )
 
+    training_tensor_augmentation = build_training_tensor_augmentation(
+        random_erasing_probability=RANDOM_ERASING_PROBABILITY,
+    )
+
     training_dataset = TsinghuaDogsDataset(
         training_paths,
         breed_to_id,
         image_augmentation=training_augmentation,
+        tensor_augmentation=training_tensor_augmentation,
         model_input_size=MODEL_INPUT_SIZE,
     )
 
@@ -344,6 +351,7 @@ def main() -> None:
     print(f"Unfrozen BatchNorm adaptation: {TRAIN_UNFROZEN_BATCH_NORM}")
     print(f"MixUp alpha: {MIXUP_ALPHA}")
     print(f"CutMix alpha: {CUTMIX_ALPHA}")
+    print(f"Random Erasing probability: {RANDOM_ERASING_PROBABILITY}")
 
     for epoch_number in range(starting_epoch, TOTAL_EPOCHS + 1):
         print()
