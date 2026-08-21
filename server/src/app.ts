@@ -4,7 +4,7 @@ import Fastify, { type FastifyInstance } from "fastify";
 import { readFile } from "node:fs/promises";
 
 import { detectRoute, healthRoute } from "./api/index.js";
-import { loadDetector } from "./inference/index.js";
+import { loadDetector, loadBreedClassifier } from "./inference/index.js";
 
 export interface BuildAppOptions {
   logger?: boolean;
@@ -45,7 +45,11 @@ export async function buildApp(
     app.addSchema(schema);
   }
 
-  const detector = await loadDetector();
+  // load models
+  const [detector, breedClassifier] = await Promise.all([
+    loadDetector(),
+    loadBreedClassifier(),
+  ]);
 
   app.log.info(
     {
@@ -53,6 +57,15 @@ export async function buildApp(
       outputs: detector.outputNames,
     },
     "Detector loaded",
+  );
+
+  app.log.info(
+    {
+      inputs: breedClassifier.session.inputNames,
+      outputs: breedClassifier.session.outputNames,
+      labelCount: breedClassifier.labels.length,
+    },
+    "Breed classifier loaded",
   );
 
   await app.register(multipart, {
