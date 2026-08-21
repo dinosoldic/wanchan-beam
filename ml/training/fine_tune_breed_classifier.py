@@ -32,7 +32,8 @@ ML_ROOT = Path(__file__).resolve().parents[1]
 CHECKPOINT_DIRECTORY = ML_ROOT / "artifacts" / "classifier" / "checkpoints"
 
 EXPERIMENT_NAME = (
-    "1module-clr-5e-5-flr-5e-6-cosine-ls-0.02-affine-" "wd-1e-2-dropout-0.4-input-256"
+    "1module-clr-5e-5-flr-5e-6-cosine-ls-0.02-affine-"
+    "wd-1e-2-dropout-0.4-input-256-mixup-a0.2"
 )
 
 BASELINE_CHECKPOINT_PATH = CHECKPOINT_DIRECTORY / "head-baseline-best.pt"
@@ -69,6 +70,7 @@ USE_GEOMETRIC_AUGMENTATION = True
 DROPOUT_PROBABILITY = 0.4
 MODEL_INPUT_SIZE = 256
 TRAIN_UNFROZEN_BATCH_NORM = False
+MIXUP_ALPHA: float | None = 0.2
 
 
 ### funcs
@@ -339,6 +341,7 @@ def main() -> None:
     print(f"Classifier hidden features: {CLASSIFIER_HIDDEN_FEATURES}")
     print(f"Model input size: {MODEL_INPUT_SIZE} x {MODEL_INPUT_SIZE}")
     print(f"Unfrozen BatchNorm adaptation: {TRAIN_UNFROZEN_BATCH_NORM}")
+    print(f"MixUp alpha: {MIXUP_ALPHA}")
 
     for epoch_number in range(starting_epoch, TOTAL_EPOCHS + 1):
         print()
@@ -360,6 +363,7 @@ def main() -> None:
             device=device,
             log_interval=BATCH_LOG_INTERVAL,
             train_unfrozen_batch_norm=TRAIN_UNFROZEN_BATCH_NORM,
+            mixup_alpha=MIXUP_ALPHA,
         )
 
         # Measure generalization without updating any parameters.

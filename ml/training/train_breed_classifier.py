@@ -77,10 +77,14 @@ def train_one_epoch(
     gradient_scaler: torch.amp.GradScaler,
     device: torch.device,
     train_unfrozen_batch_norm: bool = False,
+    mixup_alpha: float | None = None,
     max_batches: int | None = None,
     log_interval: int = 1,
 ) -> float:
     """Train the model for one pass over the supplied batches."""
+
+    if mixup_alpha is not None and mixup_alpha <= 0:
+        raise ValueError("MixUp alpha must be positive or None")
 
     model.train()
 
@@ -111,6 +115,22 @@ def train_one_epoch(
         batch_images = batch_images.to(device, non_blocking=device.type == "cuda")
         batch_breed_ids = batch_breed_ids.to(device, non_blocking=device.type == "cuda")
 
+        primary_breed_ids = batch_breed_ids
+        secondary_breed_ids: Tensor | None = None
+        mixing_weight = 1.0
+
+        if mixup_alpha is not None:
+            (
+                batch_images,
+                primary_breed_ids,
+                secondary_breed_ids,
+                mixing_weight,
+            ) = apply_mixup(
+                batch_images=batch_images,
+                batch_breed_ids=batch_breed_ids,
+                alpha=mixup_alpha,
+            )
+
         # 1. Clear gradients left over from the previous batch.
         optimizer.zero_grad()
 
@@ -121,8 +141,22 @@ def train_one_epoch(
             # 2. Forward pass: produce one breed score per class and image.
             output_logits = model(batch_images)
 
-            # 3. Compare the predicted scores with the correct breed IDs.
-            loss = loss_function(output_logits, batch_breed_ids)
+            # 3. Calculate the original image's contribution to the loss.
+            primary_loss = loss_function(output_logits, primary_breed_ids)
+
+            if secondary_breed_ids is None:
+                loss = primary_loss
+            else:
+                # A mixed image contributes to both of its original breed labels.
+                secondary_loss = loss_function(
+                    output_logits,
+                    secondary_breed_ids,
+                )
+
+                loss = (
+                    mixing_weight * primary_loss
+                    + (1.0 - mixing_weight) * secondary_loss
+                )
 
         # 4. Scale the loss and calculate gradients.
         gradient_scaler.scale(loss).backward()
@@ -313,6 +347,38 @@ def load_training_checkpoint(
     early_stopping_counter = int(checkpoint.get("early_stopping_counter", 0))
 
     return int(checkpoint["epoch"]), best_validation_loss, early_stopping_counter
+
+
+def apply_mixup(
+    batch_images: Tensor,
+    batch_breed_ids: Tensor,
+    alpha: float,
+) -> tuple[Tensor, Tensor, Tensor, float]:
+    """Mix randomly paired images and return both corresponding label sets."""
+
+    if alpha <= 0:
+        raise ValueError("MixUp alpha must be positive")
+
+    mixing_weight = float(torch.distributions.Beta(alpha, alpha).sample().item())
+
+    shuffled_indices = torch.randperm(
+        batch_images.size(0),
+        device=batch_images.device,
+    )
+
+    shuffled_images = batch_images[shuffled_indices]
+    shuffled_breed_ids = batch_breed_ids[shuffled_indices]
+
+    mixed_images = (
+        mixing_weight * batch_images + (1.0 - mixing_weight) * shuffled_images
+    )
+
+    return (
+        mixed_images,
+        batch_breed_ids,
+        shuffled_breed_ids,
+        mixing_weight,
+    )
 
 
 def main() -> None:
