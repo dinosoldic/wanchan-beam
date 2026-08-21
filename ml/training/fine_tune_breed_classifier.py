@@ -1,5 +1,6 @@
 """Partially fine-tune the trained MobileNetV3 breed classifier."""
 
+import argparse
 from pathlib import Path
 
 import torch
@@ -32,30 +33,19 @@ from training.train_breed_classifier import (
 ML_ROOT = Path(__file__).resolve().parents[1]
 CHECKPOINT_DIRECTORY = ML_ROOT / "artifacts" / "classifier" / "checkpoints"
 
-EXPERIMENT_NAME = (
-    "1module-clr-5e-5-flr-5e-6-cosine-ls-0.02-affine-"
-    "wd-1e-2-dropout-0.4-input-256-random-erasing-p0.25"
+BASE_EXPERIMENT_NAME = (
+    "1module-clr-5e-5-flr-5e-6-cosine-ls-0.02-affine-" "wd-1e-2-dropout-0.4-input-256"
 )
 
 BASELINE_CHECKPOINT_PATH = CHECKPOINT_DIRECTORY / "head-baseline-best.pt"
-
-FINE_TUNE_LATEST_CHECKPOINT_PATH = (
-    CHECKPOINT_DIRECTORY / f"fine-tune-{EXPERIMENT_NAME}-latest.pt"
-)
-FINE_TUNE_BEST_LOSS_CHECKPOINT_PATH = (
-    CHECKPOINT_DIRECTORY / f"fine-tune-{EXPERIMENT_NAME}-best-loss.pt"
-)
-
-FINE_TUNE_BEST_ACCURACY_CHECKPOINT_PATH = (
-    CHECKPOINT_DIRECTORY / f"fine-tune-{EXPERIMENT_NAME}-best-accuracy.pt"
-)
 
 NUMBER_OF_FEATURE_MODULES_TO_UNFREEZE = 1
 CLASSIFIER_HIDDEN_FEATURES: int | None = 1280
 
 BATCH_SIZE = 64
 NUMBER_OF_WORKERS = 4
-RANDOM_SEED = 42
+DEFAULT_RANDOM_SEED = 43
+UNSUFFIXED_CHECKPOINT_SEED = 42
 TOTAL_EPOCHS = 5
 BATCH_LOG_INTERVAL = 50
 EARLY_STOPPING_PATIENCE = 2
@@ -73,7 +63,7 @@ MODEL_INPUT_SIZE = 256
 TRAIN_UNFROZEN_BATCH_NORM = False
 MIXUP_ALPHA: float | None = None
 CUTMIX_ALPHA: float | None = None
-RANDOM_ERASING_PROBABILITY = 0.25
+DEFAULT_RANDOM_ERASING_PROBABILITY = 0.25
 
 
 ### funcs
@@ -93,10 +83,74 @@ def count_trainable_parameters(module: nn.Module) -> int:
     )
 
 
+def parse_arguments() -> tuple[int, float]:
+    """Read optional overrides for the selected training configuration."""
+
+    parser = argparse.ArgumentParser(
+        description="Fine-tune the MobileNetV3 dog-breed classifier.",
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=DEFAULT_RANDOM_SEED,
+        help="Random seed used by training and balanced sampling.",
+    )
+    parser.add_argument(
+        "--random-erasing-probability",
+        type=float,
+        default=DEFAULT_RANDOM_ERASING_PROBABILITY,
+        help="Probability that one training image receives Random Erasing.",
+    )
+
+    arguments = parser.parse_args()
+
+    if arguments.seed < 0:
+        parser.error("--seed must be non-negative")
+
+    if not 0.0 <= arguments.random_erasing_probability <= 1.0:
+        parser.error("--random-erasing-probability must be between 0 and 1")
+
+    return arguments.seed, arguments.random_erasing_probability
+
+
+def build_experiment_name(
+    random_seed: int,
+    random_erasing_probability: float,
+) -> str:
+    """Build a unique run name while preserving existing seed-42 checkpoints."""
+
+    experiment_name = BASE_EXPERIMENT_NAME
+
+    if random_erasing_probability > 0.0:
+        experiment_name += f"-random-erasing-p{random_erasing_probability:.2f}"
+
+    # Seed 42 predates seed confirmation, so its checkpoints have no seed suffix.
+    if random_seed != UNSUFFIXED_CHECKPOINT_SEED:
+        experiment_name += f"-seed{random_seed}"
+
+    return experiment_name
+
+
 def main() -> None:
     """Fine-tune selected MobileNetV3 modules and its classifier."""
 
-    set_random_seed(RANDOM_SEED)
+    random_seed, random_erasing_probability = parse_arguments()
+    experiment_name = build_experiment_name(
+        random_seed=random_seed,
+        random_erasing_probability=random_erasing_probability,
+    )
+
+    fine_tune_latest_checkpoint_path = (
+        CHECKPOINT_DIRECTORY / f"fine-tune-{experiment_name}-latest.pt"
+    )
+    fine_tune_best_loss_checkpoint_path = (
+        CHECKPOINT_DIRECTORY / f"fine-tune-{experiment_name}-best-loss.pt"
+    )
+    fine_tune_best_accuracy_checkpoint_path = (
+        CHECKPOINT_DIRECTORY / f"fine-tune-{experiment_name}-best-accuracy.pt"
+    )
+
+    set_random_seed(random_seed)
 
     device = select_device()
 
@@ -108,7 +162,7 @@ def main() -> None:
     )
 
     training_tensor_augmentation = build_training_tensor_augmentation(
-        random_erasing_probability=RANDOM_ERASING_PROBABILITY,
+        random_erasing_probability=random_erasing_probability,
     )
 
     training_dataset = TsinghuaDogsDataset(
@@ -121,7 +175,7 @@ def main() -> None:
 
     # A dedicated generator makes the balanced sampling order reproducible.
     sampler_generator = torch.Generator()
-    sampler_generator.manual_seed(RANDOM_SEED)
+    sampler_generator.manual_seed(random_seed)
 
     training_sample_weights = build_balanced_sample_weights(training_paths)
 
@@ -259,13 +313,13 @@ def main() -> None:
     epochs_without_metric_improvement = 0
     checkpoint_status = "No fine-tuning checkpoint found; starting from baseline"
 
-    if RESUME_FROM_CHECKPOINT and FINE_TUNE_LATEST_CHECKPOINT_PATH.exists():
+    if RESUME_FROM_CHECKPOINT and fine_tune_latest_checkpoint_path.exists():
         (
             completed_epoch,
             best_validation_loss,
             epochs_without_metric_improvement,
         ) = load_training_checkpoint(
-            checkpoint_path=FINE_TUNE_LATEST_CHECKPOINT_PATH,
+            checkpoint_path=fine_tune_latest_checkpoint_path,
             model=model,
             optimizer=optimizer,
             gradient_scaler=gradient_scaler,
@@ -278,9 +332,9 @@ def main() -> None:
 
         starting_epoch = completed_epoch + 1
 
-        if FINE_TUNE_BEST_ACCURACY_CHECKPOINT_PATH.exists():
+        if fine_tune_best_accuracy_checkpoint_path.exists():
             best_accuracy_checkpoint = torch.load(
-                FINE_TUNE_BEST_ACCURACY_CHECKPOINT_PATH,
+                fine_tune_best_accuracy_checkpoint_path,
                 map_location=device,
                 weights_only=True,
             )
@@ -323,7 +377,8 @@ def main() -> None:
     )
 
     ## debug info
-    print(f"Experiment: {EXPERIMENT_NAME}")
+    print(f"Experiment: {experiment_name}")
+    print(f"Random seed: {random_seed}")
     print(f"Fine-tuning device: {device_description}")
     print(f"Checkpoint: {checkpoint_status}")
     print(
@@ -351,7 +406,7 @@ def main() -> None:
     print(f"Unfrozen BatchNorm adaptation: {TRAIN_UNFROZEN_BATCH_NORM}")
     print(f"MixUp alpha: {MIXUP_ALPHA}")
     print(f"CutMix alpha: {CUTMIX_ALPHA}")
-    print(f"Random Erasing probability: {RANDOM_ERASING_PROBABILITY}")
+    print(f"Random Erasing probability: {random_erasing_probability}")
 
     for epoch_number in range(starting_epoch, TOTAL_EPOCHS + 1):
         print()
@@ -406,7 +461,7 @@ def main() -> None:
             best_validation_loss = validation_loss
 
             save_training_checkpoint(
-                checkpoint_path=FINE_TUNE_BEST_LOSS_CHECKPOINT_PATH,
+                checkpoint_path=fine_tune_best_loss_checkpoint_path,
                 model=model,
                 optimizer=optimizer,
                 gradient_scaler=gradient_scaler,
@@ -423,7 +478,7 @@ def main() -> None:
 
             print(
                 "Saved new best-loss checkpoint: "
-                f"{FINE_TUNE_BEST_LOSS_CHECKPOINT_PATH}"
+                f"{fine_tune_best_loss_checkpoint_path}"
             )
 
         # Accuracy and loss can favor different epochs, so preserve both.
@@ -431,7 +486,7 @@ def main() -> None:
             best_validation_accuracy = validation_accuracy
 
             save_training_checkpoint(
-                checkpoint_path=FINE_TUNE_BEST_ACCURACY_CHECKPOINT_PATH,
+                checkpoint_path=fine_tune_best_accuracy_checkpoint_path,
                 model=model,
                 optimizer=optimizer,
                 gradient_scaler=gradient_scaler,
@@ -448,11 +503,11 @@ def main() -> None:
 
             print(
                 "Saved new best-accuracy checkpoint: "
-                f"{FINE_TUNE_BEST_ACCURACY_CHECKPOINT_PATH}"
+                f"{fine_tune_best_accuracy_checkpoint_path}"
             )
         # Latest is always saved so an interrupted run can resume.
         save_training_checkpoint(
-            checkpoint_path=FINE_TUNE_LATEST_CHECKPOINT_PATH,
+            checkpoint_path=fine_tune_latest_checkpoint_path,
             model=model,
             optimizer=optimizer,
             gradient_scaler=gradient_scaler,
@@ -469,7 +524,7 @@ def main() -> None:
 
         print(
             "Saved latest fine-tuning checkpoint: "
-            f"{FINE_TUNE_LATEST_CHECKPOINT_PATH}"
+            f"{fine_tune_latest_checkpoint_path}"
         )
 
         if epochs_without_metric_improvement >= EARLY_STOPPING_PATIENCE:
