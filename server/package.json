@@ -11,6 +11,7 @@
     "typecheck": "tsc --noEmit",
     "smoke:detector": "tsx tests/detectorTest.ts",
     "smoke:breed-crop-parity": "tsx tests/breedCropParityTest.ts",
+    "smoke:classifier": "tsx tests/classifierTest.ts",
     "test": "tsx --test --test-concurrency=1 tests/*.test.ts"
   },
   "dependencies": {

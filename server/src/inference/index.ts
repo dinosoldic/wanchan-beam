@@ -10,3 +10,5 @@ export {
   loadBreedClassifier,
   type BreedClassifierAssets,
 } from "./loadBreedClassifier.js";
+
+export { classifyBreeds } from "./classifyBreeds.js";
