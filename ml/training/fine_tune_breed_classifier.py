@@ -32,8 +32,7 @@ ML_ROOT = Path(__file__).resolve().parents[1]
 CHECKPOINT_DIRECTORY = ML_ROOT / "artifacts" / "classifier" / "checkpoints"
 
 EXPERIMENT_NAME = (
-    "1module-clr-5e-5-flr-5e-6-cosine-ls-0.02-affine-"
-    "wd-1e-2-dropout-0.4-input-256-bn-adapt"
+    "1module-clr-5e-5-flr-5e-6-cosine-ls-0.02-affine-" "wd-1e-2-dropout-0.4-input-256"
 )
 
 BASELINE_CHECKPOINT_PATH = CHECKPOINT_DIRECTORY / "head-baseline-best.pt"
@@ -69,7 +68,7 @@ LABEL_SMOOTHING = 0.02
 USE_GEOMETRIC_AUGMENTATION = True
 DROPOUT_PROBABILITY = 0.4
 MODEL_INPUT_SIZE = 256
-TRAIN_UNFROZEN_BATCH_NORM = True
+TRAIN_UNFROZEN_BATCH_NORM = False
 
 
 ### funcs
