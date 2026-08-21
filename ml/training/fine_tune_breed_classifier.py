@@ -31,9 +31,12 @@ from training.train_breed_classifier import (
 ML_ROOT = Path(__file__).resolve().parents[1]
 CHECKPOINT_DIRECTORY = ML_ROOT / "artifacts" / "classifier" / "checkpoints"
 
-EXPERIMENT_NAME = "head-linear-1module-clr-5e-5-flr-5e-6-cosine-ls-0.02-affine-wd-1e-2"
+EXPERIMENT_NAME = (
+    "head-512-1module-clr-5e-5-flr-5e-6-cosine-"
+    "ls-0.02-affine-wd-1e-2-dropout-0.4"
+)
 
-BASELINE_CHECKPOINT_PATH = CHECKPOINT_DIRECTORY / "head-linear-best.pt"
+BASELINE_CHECKPOINT_PATH = CHECKPOINT_DIRECTORY / "head-512-best.pt"
 
 FINE_TUNE_LATEST_CHECKPOINT_PATH = (
     CHECKPOINT_DIRECTORY / f"fine-tune-{EXPERIMENT_NAME}-latest.pt"
@@ -47,7 +50,7 @@ FINE_TUNE_BEST_ACCURACY_CHECKPOINT_PATH = (
 )
 
 NUMBER_OF_FEATURE_MODULES_TO_UNFREEZE = 1
-CLASSIFIER_HIDDEN_FEATURES: int | None = None
+CLASSIFIER_HIDDEN_FEATURES: int | None = 512
 
 BATCH_SIZE = 64
 NUMBER_OF_WORKERS = 4

@@ -1,12 +1,12 @@
 """Evaluate a saved dog-breed classifier checkpoint."""
 
 import argparse
-from collections.abc import Iterable
-from pathlib import Path
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
+from pathlib import Path
 
 import torch
-from torch import nn, Tensor
+from torch import Tensor, nn
 from torch.utils.data import DataLoader
 
 from datasets.tsinghua_dogs import (
@@ -87,11 +87,41 @@ def select_device() -> torch.device:
     return torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
+def infer_classifier_hidden_features(
+    model_state_dict: Mapping[str, Tensor],
+    number_of_breeds: int,
+) -> int | None:
+    """Infer the classifier architecture from its saved tensor shapes."""
+
+    input_weight = model_state_dict.get("classifier.0.weight")
+
+    if input_weight is None or input_weight.ndim != 2:
+        raise ValueError("Checkpoint has no valid classifier input weight")
+
+    output_weight = model_state_dict.get("classifier.3.weight")
+
+    if output_weight is None:
+        if input_weight.shape[0] != number_of_breeds:
+            raise ValueError("Linear classifier output does not match breed count")
+
+        return None
+
+    if output_weight.ndim != 2:
+        raise ValueError("Checkpoint has no valid classifier output weight")
+
+    hidden_features = int(input_weight.shape[0])
+
+    if tuple(output_weight.shape) != (number_of_breeds, hidden_features):
+        raise ValueError("Classifier tensor shapes are inconsistent")
+
+    return hidden_features
+
+
 def load_model_checkpoint(
     checkpoint_path: Path,
     expected_breed_names: tuple[str, ...],
     device: torch.device,
-) -> tuple[nn.Module, dict]:
+) -> tuple[nn.Module, dict, int | None]:
     """Load a complete model checkpoint and verify its breed ordering."""
 
     checkpoint = torch.load(
@@ -105,15 +135,23 @@ def load_model_checkpoint(
     if checkpoint_breed_names != expected_breed_names:
         raise ValueError("Checkpoint breed ordering does not match the current dataset")
 
+    model_state_dict = checkpoint["model_state_dict"]
+
+    classifier_hidden_features = infer_classifier_hidden_features(
+        model_state_dict=model_state_dict,
+        number_of_breeds=len(expected_breed_names),
+    )
+
     model = build_breed_classifier(
         number_of_breeds=len(expected_breed_names),
         use_pretrained_weights=False,
+        classifier_hidden_features=classifier_hidden_features,
     ).to(device)
 
-    model.load_state_dict(checkpoint["model_state_dict"])
+    model.load_state_dict(model_state_dict)
     model.eval()
 
-    return model, checkpoint
+    return model, checkpoint, classifier_hidden_features
 
 
 def evaluate_model(
@@ -295,7 +333,7 @@ def main() -> None:
     training_paths = load_split_paths(TRAIN_SPLIT_PATH)
     breed_names, breed_to_id = build_breed_mapping(training_paths)
 
-    model, checkpoint = load_model_checkpoint(
+    model, checkpoint, classifier_hidden_features = load_model_checkpoint(
         checkpoint_path=checkpoint_path,
         expected_breed_names=breed_names,
         device=device,
@@ -345,6 +383,7 @@ def main() -> None:
 
     print(f"Checkpoint: {checkpoint_path.resolve()}")
     print(f"Evaluation device: {device}")
+    print(f"Classifier hidden features: {classifier_hidden_features}")
     print(f"Checkpoint epoch: {checkpoint['epoch']}")
     print(f"Saved validation loss: {checkpoint['validation_loss']:.4f}")
     print("Saved top-1 accuracy: " f"{checkpoint['validation_accuracy']:.2%}")
