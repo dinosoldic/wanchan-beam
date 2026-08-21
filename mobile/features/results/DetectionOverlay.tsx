@@ -33,6 +33,10 @@ const EDGE_PADDING = 6;
 const DOT_SIZE = 9;
 const LINE_THICKNESS = 2;
 
+// This presentation threshold is provisional until confidence calibration is
+// measured over the complete validation set.
+const MINIMUM_BREED_CONFIDENCE = 0.4;
+
 function formatBreedLabel(label: string): string {
   return label
     .split("_")
@@ -102,7 +106,10 @@ function buildDetectionCallouts(
         key: `${index}-${x1}-${y1}`,
         anchorX: ((x1 + x2) / 2) * scaleX,
         anchorY: ((y1 + y2) / 2) * scaleY,
-        breedLabel: formatBreedLabel(firstBreed.label),
+        breedLabel:
+          firstBreed.confidence >= MINIMUM_BREED_CONFIDENCE
+            ? formatBreedLabel(firstBreed.label)
+            : "Breed uncertain",
       };
     })
     .sort((first, second) => first.anchorX - second.anchorX);

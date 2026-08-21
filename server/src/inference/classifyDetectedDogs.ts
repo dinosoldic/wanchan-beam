@@ -29,7 +29,20 @@ export async function classifyDetectedDogs(
   );
 
   // Run one classifier call for the complete crop batch.
+  // console.log(`Classifying breeds for ${crops.length} detected dog(s)...`);
+
   const predictions = await classifyBreeds(crops);
+
+  // Log both ranked predictions while monitoring classifier behavior.
+  // console.table(
+  //   predictions.map(([firstBreed, secondBreed], index) => ({
+  //     dog: index + 1,
+  //     firstBreed: firstBreed.label,
+  //     firstConfidence: `${(firstBreed.confidence * 100).toFixed(1)}%`,
+  //     secondBreed: secondBreed.label,
+  //     secondConfidence: `${(secondBreed.confidence * 100).toFixed(1)}%`,
+  //   })),
+  // );
 
   return detections.map((detection, index) => {
     const breedPredictions = predictions[index];
