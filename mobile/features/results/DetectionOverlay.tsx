@@ -33,8 +33,8 @@ const EDGE_PADDING = 6;
 const DOT_SIZE = 9;
 const LINE_THICKNESS = 2;
 
-// This presentation threshold is provisional until confidence calibration is
-// measured over the complete validation set.
+// Selected from clean-crop validation; re-evaluate for future models and with
+// a labeled set of detector-generated crops.
 const MINIMUM_BREED_CONFIDENCE = 0.4;
 
 function formatBreedLabel(label: string): string {

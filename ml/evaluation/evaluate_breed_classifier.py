@@ -21,6 +21,7 @@ from training.breed_classifier import build_breed_classifier
 
 EVALUATION_BATCH_SIZE = 64
 NUM_WORKERS = 4
+CONFIDENCE_THRESHOLDS = (0.30, 0.35, 0.40, 0.45, 0.50)
 
 
 @dataclass(frozen=True)
@@ -32,6 +33,7 @@ class EvaluationResult:
     top_two_accuracy: float
     true_breed_ids: tuple[int, ...]
     predicted_breed_ids: tuple[int, ...]
+    top_one_confidences: tuple[float, ...]
 
 
 @dataclass(frozen=True)
@@ -60,6 +62,94 @@ class BreedConfusion:
     @property
     def error_rate(self) -> float:
         return self.incorrect_predictions / self.true_breed_examples
+
+
+@dataclass(frozen=True)
+class ConfidenceThresholdResult:
+    """User-visible accuracy and coverage for one confidence threshold."""
+
+    threshold: float
+    total_predictions: int
+    displayed_predictions: int
+    correct_labels_displayed: int
+    correct_labels_hidden: int
+    wrong_labels_displayed: int
+
+    @property
+    def coverage(self) -> float:
+        return self.displayed_predictions / self.total_predictions
+
+    @property
+    def displayed_accuracy(self) -> float:
+        if self.displayed_predictions == 0:
+            return 0.0
+
+        return self.correct_labels_displayed / self.displayed_predictions
+
+
+def calculate_confidence_threshold_results(
+    evaluation_result: EvaluationResult,
+    thresholds: Iterable[float],
+) -> tuple[ConfidenceThresholdResult, ...]:
+    """Measure the visible-result tradeoff for each confidence threshold."""
+
+    total_predictions = len(evaluation_result.true_breed_ids)
+
+    if total_predictions == 0:
+        raise ValueError("Confidence analysis did not receive any predictions")
+
+    if (
+        len(evaluation_result.predicted_breed_ids) != total_predictions
+        or len(evaluation_result.top_one_confidences) != total_predictions
+    ):
+        raise ValueError("Confidence analysis inputs do not have matching lengths")
+
+    for confidence in evaluation_result.top_one_confidences:
+        if not 0.0 <= confidence <= 1.0:
+            raise ValueError(f"Invalid top-one confidence: {confidence}")
+
+    results: list[ConfidenceThresholdResult] = []
+
+    for threshold in thresholds:
+        if not 0.0 <= threshold <= 1.0:
+            raise ValueError(f"Invalid confidence threshold: {threshold}")
+
+        correct_labels_displayed = 0
+        correct_labels_hidden = 0
+        wrong_labels_displayed = 0
+
+        for true_breed_id, predicted_breed_id, confidence in zip(
+            evaluation_result.true_breed_ids,
+            evaluation_result.predicted_breed_ids,
+            evaluation_result.top_one_confidences,
+            strict=True,
+        ):
+            is_correct = predicted_breed_id == true_breed_id
+            is_displayed = confidence >= threshold
+
+            if is_displayed and is_correct:
+                correct_labels_displayed += 1
+            elif is_displayed:
+                wrong_labels_displayed += 1
+            elif is_correct:
+                correct_labels_hidden += 1
+
+        displayed_predictions = (
+            correct_labels_displayed + wrong_labels_displayed
+        )
+
+        results.append(
+            ConfidenceThresholdResult(
+                threshold=threshold,
+                total_predictions=total_predictions,
+                displayed_predictions=displayed_predictions,
+                correct_labels_displayed=correct_labels_displayed,
+                correct_labels_hidden=correct_labels_hidden,
+                wrong_labels_displayed=wrong_labels_displayed,
+            )
+        )
+
+    return tuple(results)
 
 
 def parse_checkpoint_path() -> Path:
@@ -175,6 +265,7 @@ def evaluate_model(
     processed_examples = 0
     true_breed_ids: list[int] = []
     predicted_breed_ids: list[int] = []
+    top_one_confidences: list[float] = []
 
     model.eval()
 
@@ -196,17 +287,26 @@ def evaluate_model(
                 output_logits = model(batch_images)
                 loss = loss_function(output_logits, batch_breed_ids)
 
-            top_two_breed_ids = output_logits.topk(
+            # Softmax converts logits into the same confidence values used by
+            # the server while preserving the predicted class ordering.
+            output_probabilities = output_logits.float().softmax(dim=1)
+
+            top_two_confidences, top_two_breed_ids = output_probabilities.topk(
                 k=2,
                 dim=1,
-            ).indices
+            )
 
             predicted_top_one_ids = top_two_breed_ids[:, 0]
+            predicted_top_one_confidences = top_two_confidences[:, 0]
             true_breed_ids.extend(
                 int(breed_id) for breed_id in batch_breed_ids.cpu().tolist()
             )
             predicted_breed_ids.extend(
                 int(breed_id) for breed_id in predicted_top_one_ids.cpu().tolist()
+            )
+            top_one_confidences.extend(
+                float(confidence)
+                for confidence in predicted_top_one_confidences.cpu().tolist()
             )
 
             correct_top_one += (predicted_top_one_ids == batch_breed_ids).sum().item()
@@ -231,6 +331,7 @@ def evaluate_model(
         top_two_accuracy=correct_top_two / processed_examples,
         true_breed_ids=tuple(true_breed_ids),
         predicted_breed_ids=tuple(predicted_breed_ids),
+        top_one_confidences=tuple(top_one_confidences),
     )
 
 
@@ -370,6 +471,11 @@ def main() -> None:
         device=device,
     )
 
+    confidence_threshold_results = calculate_confidence_threshold_results(
+        evaluation_result=evaluation_result,
+        thresholds=CONFIDENCE_THRESHOLDS,
+    )
+
     confusion_matrix = build_confusion_matrix(
         evaluation_result=evaluation_result,
         number_of_breeds=len(breed_names),
@@ -402,6 +508,25 @@ def main() -> None:
     print(f"Recalculated validation loss: {evaluation_result.loss:.4f}")
     print(f"Recalculated top-1 accuracy: {evaluation_result.top_one_accuracy:.2%}")
     print(f"Top-2 accuracy: {evaluation_result.top_two_accuracy:.2%}")
+
+    print()
+    print("Confidence threshold analysis:")
+    print(
+        f"{'Threshold':>9}  "
+        f"{'Coverage':>9}  "
+        f"{'Displayed accuracy':>18}  "
+        f"{'Correct hidden':>14}  "
+        f"{'Wrong displayed':>15}"
+    )
+
+    for threshold_result in confidence_threshold_results:
+        print(
+            f"{threshold_result.threshold:>9.2f}  "
+            f"{threshold_result.coverage:>9.2%}  "
+            f"{threshold_result.displayed_accuracy:>18.2%}  "
+            f"{threshold_result.correct_labels_hidden:>14,}  "
+            f"{threshold_result.wrong_labels_displayed:>15,}"
+        )
 
     print()
     print(f"Confusion matrix shape: {tuple(confusion_matrix.shape)}")
