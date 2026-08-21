@@ -1,9 +1,10 @@
-import {
-  processDetectorOutput,
-  type DogDetection,
-} from "../postprocessing/index.js";
+import { processDetectorOutput } from "../postprocessing/index.js";
 import { preprocessDetectorImage } from "../preprocessing/index.js";
 
+import {
+  classifyDetectedDogs,
+  type ClassifiedDogDetection,
+} from "./classifyDetectedDogs.js";
 import { loadDetector } from "./loadDetector.js";
 
 export interface DetectedImage {
@@ -13,7 +14,7 @@ export interface DetectedImage {
 
 export interface DogDetectionResult {
   image: DetectedImage;
-  detections: DogDetection[];
+  detections: ClassifiedDogDetection[];
 }
 
 export async function detectDogs(
@@ -35,11 +36,17 @@ export async function detectDogs(
 
   const detections = processDetectorOutput(output, transform);
 
+  // Crop every detected dog and classify all crops in one batch.
+  const classifiedDetections = await classifyDetectedDogs(
+    imageBuffer,
+    detections,
+  );
+
   return {
     image: {
       width: transform.originalWidth,
       height: transform.originalHeight,
     },
-    detections,
+    detections: classifiedDetections,
   };
 }

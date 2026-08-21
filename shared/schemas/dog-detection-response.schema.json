@@ -37,7 +37,7 @@
     "dogDetection": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["classId", "label", "confidence", "box"],
+      "required": ["classId", "label", "confidence", "box", "breedPredictions"],
       "properties": {
         "classId": {
           "type": "integer",
@@ -54,6 +54,35 @@
         },
         "box": {
           "$ref": "#/definitions/detectionBox"
+        },
+        "breedPredictions": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {
+            "$ref": "#/definitions/breedPrediction"
+          }
+        }
+      }
+    },
+    "breedPrediction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["classId", "label", "confidence"],
+      "properties": {
+        "classId": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 129
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
         }
       }
     },

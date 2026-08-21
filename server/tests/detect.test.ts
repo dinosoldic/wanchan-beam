@@ -76,6 +76,24 @@ test("POST /detect returns dog detections", async () => {
   });
 
   assert.equal(result.detections.length, 6);
+
+  for (const detection of result.detections) {
+    assert.equal(detection.breedPredictions.length, 2);
+
+    const [firstBreed, secondBreed] = detection.breedPredictions;
+
+    for (const prediction of detection.breedPredictions) {
+      assert.ok(Number.isInteger(prediction.classId));
+      assert.ok(prediction.classId >= 0);
+      assert.ok(prediction.classId <= 129);
+      assert.ok(prediction.label.length > 0);
+      assert.ok(prediction.confidence >= 0);
+      assert.ok(prediction.confidence <= 1);
+    }
+
+    assert.notEqual(firstBreed.classId, secondBreed.classId);
+    assert.ok(firstBreed.confidence >= secondBreed.confidence);
+  }
 });
 
 test("POST /detect rejects an incorrectly named file field", async () => {

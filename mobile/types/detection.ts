@@ -5,11 +5,20 @@ export interface DetectionBox {
   y2: number;
 }
 
+export interface BreedPrediction {
+  classId: number;
+  label: string;
+  confidence: number;
+}
+
+export type DogBreedPredictions = [BreedPrediction, BreedPrediction];
+
 export interface DogDetection {
   classId: 16;
   label: "dog";
   confidence: number;
   box: DetectionBox;
+  breedPredictions: DogBreedPredictions;
 }
 
 export interface DetectionImage {
