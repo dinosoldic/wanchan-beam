@@ -12,3 +12,8 @@ export {
 } from "./loadBreedClassifier.js";
 
 export { classifyBreeds } from "./classifyBreeds.js";
+
+export {
+  classifyDetectedDogs,
+  type ClassifiedDogDetection,
+} from "./classifyDetectedDogs.js";
