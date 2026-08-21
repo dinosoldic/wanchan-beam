@@ -78,6 +78,7 @@ def train_one_epoch(
     device: torch.device,
     train_unfrozen_batch_norm: bool = False,
     mixup_alpha: float | None = None,
+    cutmix_alpha: float | None = None,
     max_batches: int | None = None,
     log_interval: int = 1,
 ) -> float:
@@ -85,6 +86,12 @@ def train_one_epoch(
 
     if mixup_alpha is not None and mixup_alpha <= 0:
         raise ValueError("MixUp alpha must be positive or None")
+
+    if cutmix_alpha is not None and cutmix_alpha <= 0:
+        raise ValueError("CutMix alpha must be positive or None")
+
+    if mixup_alpha is not None and cutmix_alpha is not None:
+        raise ValueError("MixUp and CutMix cannot be enabled simultaneously")
 
     model.train()
 
@@ -129,6 +136,17 @@ def train_one_epoch(
                 batch_images=batch_images,
                 batch_breed_ids=batch_breed_ids,
                 alpha=mixup_alpha,
+            )
+        elif cutmix_alpha is not None:
+            (
+                batch_images,
+                primary_breed_ids,
+                secondary_breed_ids,
+                mixing_weight,
+            ) = apply_cutmix(
+                batch_images=batch_images,
+                batch_breed_ids=batch_breed_ids,
+                alpha=cutmix_alpha,
             )
 
         # 1. Clear gradients left over from the previous batch.
@@ -378,6 +396,85 @@ def apply_mixup(
         batch_breed_ids,
         shuffled_breed_ids,
         mixing_weight,
+    )
+
+
+def apply_cutmix(
+    batch_images: Tensor,
+    batch_breed_ids: Tensor,
+    alpha: float,
+) -> tuple[Tensor, Tensor, Tensor, float]:
+    """Replace one image region and return its area-adjusted label weights."""
+
+    if alpha <= 0:
+        raise ValueError("CutMix alpha must be positive")
+
+    if batch_images.ndim != 4:
+        raise ValueError(
+            "CutMix expects images shaped [batch, channels, height, width]"
+        )
+
+    sampled_weight = float(torch.distributions.Beta(alpha, alpha).sample().item())
+
+    shuffled_indices = torch.randperm(
+        batch_images.size(0),
+        device=batch_images.device,
+    )
+
+    shuffled_breed_ids = batch_breed_ids[shuffled_indices]
+
+    image_height = batch_images.size(2)
+    image_width = batch_images.size(3)
+
+    # A desired secondary-label weight of (1 - lambda) becomes the rectangle area.
+    cut_ratio = (1.0 - sampled_weight) ** 0.5
+    cut_width = int(image_width * cut_ratio)
+    cut_height = int(image_height * cut_ratio)
+
+    center_x = int(
+        torch.randint(
+            low=0,
+            high=image_width,
+            size=(1,),
+            device=batch_images.device,
+        ).item()
+    )
+
+    center_y = int(
+        torch.randint(
+            low=0,
+            high=image_height,
+            size=(1,),
+            device=batch_images.device,
+        ).item()
+    )
+
+    x1 = max(center_x - cut_width // 2, 0)
+    y1 = max(center_y - cut_height // 2, 0)
+    x2 = min(center_x + (cut_width - cut_width // 2), image_width)
+    y2 = min(center_y + (cut_height - cut_height // 2), image_height)
+
+    mixed_images = batch_images.clone()
+
+    # Copy the same rectangular location from each shuffled image.
+    mixed_images[:, :, y1:y2, x1:x2] = batch_images[
+        shuffled_indices,
+        :,
+        y1:y2,
+        x1:x2,
+    ]
+
+    patch_area = (x2 - x1) * (y2 - y1)
+    total_image_area = image_width * image_height
+
+    # Edge clipping can shrink the rectangle, so use its real area for the labels.
+    primary_weight = 1.0 - patch_area / total_image_area
+
+    return (
+        mixed_images,
+        batch_breed_ids,
+        shuffled_breed_ids,
+        primary_weight,
     )
 
 
