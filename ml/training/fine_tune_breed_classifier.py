@@ -31,7 +31,9 @@ from training.train_breed_classifier import (
 ML_ROOT = Path(__file__).resolve().parents[1]
 CHECKPOINT_DIRECTORY = ML_ROOT / "artifacts" / "classifier" / "checkpoints"
 
-EXPERIMENT_NAME = "1module-clr-5e-5-flr-5e-6-cosine-ls-0.02-affine-wd-1e-2-dropout-0.4"
+EXPERIMENT_NAME = (
+    "1module-clr-5e-5-flr-5e-6-cosine-ls-0.02-affine-wd-1e-2-dropout-0.4-input-256"
+)
 
 BASELINE_CHECKPOINT_PATH = CHECKPOINT_DIRECTORY / "head-baseline-best.pt"
 
@@ -65,6 +67,7 @@ WEIGHT_DECAY = 0.01
 LABEL_SMOOTHING = 0.02
 USE_GEOMETRIC_AUGMENTATION = True
 DROPOUT_PROBABILITY = 0.4
+MODEL_INPUT_SIZE = 256
 
 
 ### funcs
@@ -102,6 +105,7 @@ def main() -> None:
         training_paths,
         breed_to_id,
         image_augmentation=training_augmentation,
+        model_input_size=MODEL_INPUT_SIZE,
     )
 
     # A dedicated generator makes the balanced sampling order reproducible.
@@ -131,6 +135,7 @@ def main() -> None:
     validation_dataset = TsinghuaDogsDataset(
         validation_paths,
         breed_to_id,
+        model_input_size=MODEL_INPUT_SIZE,
     )
 
     validation_data_loader = DataLoader(
@@ -255,6 +260,7 @@ def main() -> None:
             gradient_scaler=gradient_scaler,
             expected_breed_names=breed_names,
             device=device,
+            expected_model_input_size=MODEL_INPUT_SIZE,
             learning_rate_scheduler=learning_rate_scheduler,
             sampler_generator=sampler_generator,
         )
@@ -330,6 +336,7 @@ def main() -> None:
     print(f"Mixed precision: {mixed_precision_enabled}")
     print(f"Dropout probability: {dropout_description}")
     print(f"Classifier hidden features: {CLASSIFIER_HIDDEN_FEATURES}")
+    print(f"Model input size: {MODEL_INPUT_SIZE} × {MODEL_INPUT_SIZE}")
 
     for epoch_number in range(starting_epoch, TOTAL_EPOCHS + 1):
         print()
@@ -393,6 +400,7 @@ def main() -> None:
                 learning_rate_scheduler=learning_rate_scheduler,
                 sampler_generator=sampler_generator,
                 early_stopping_counter=epochs_without_metric_improvement,
+                model_input_size=MODEL_INPUT_SIZE,
             )
 
             print(
@@ -417,6 +425,7 @@ def main() -> None:
                 learning_rate_scheduler=learning_rate_scheduler,
                 sampler_generator=sampler_generator,
                 early_stopping_counter=epochs_without_metric_improvement,
+                model_input_size=MODEL_INPUT_SIZE,
             )
 
             print(
@@ -437,6 +446,7 @@ def main() -> None:
             learning_rate_scheduler=learning_rate_scheduler,
             sampler_generator=sampler_generator,
             early_stopping_counter=epochs_without_metric_improvement,
+            model_input_size=MODEL_INPUT_SIZE,
         )
 
         print(

@@ -53,10 +53,15 @@ class TsinghuaDogsDataset(Dataset[tuple[Tensor, int]]):
         image_paths: list[Path],
         breed_to_id: dict[str, int],
         image_augmentation: Callable[[Image.Image], Image.Image] | None = None,
+        model_input_size: int = MODEL_INPUT_SIZE,
     ) -> None:
+        if model_input_size <= 0:
+            raise ValueError("Model input size must be positive")
+
         self.image_paths = tuple(image_paths)
         self.breed_to_id = breed_to_id
         self.image_augmentation = image_augmentation
+        self.model_input_size = model_input_size
 
     def __len__(self) -> int:
         """Return the number of available training examples."""
@@ -75,7 +80,10 @@ class TsinghuaDogsDataset(Dataset[tuple[Tensor, int]]):
         if self.image_augmentation is not None:
             dog_crop = self.image_augmentation(dog_crop)
 
-        model_input = resize_with_padding(dog_crop)
+        model_input = resize_with_padding(
+            dog_crop,
+            output_size=self.model_input_size,
+        )
         image_tensor = image_to_normalized_tensor(model_input)
 
         return image_tensor, breed_id

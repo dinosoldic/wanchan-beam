@@ -10,6 +10,7 @@ from torch import Tensor, nn
 from torch.utils.data import DataLoader
 
 from datasets.tsinghua_dogs import (
+    MODEL_INPUT_SIZE as DEFAULT_MODEL_INPUT_SIZE,
     TRAIN_SPLIT_PATH,
     build_breed_mapping,
     load_split_paths,
@@ -121,7 +122,7 @@ def load_model_checkpoint(
     checkpoint_path: Path,
     expected_breed_names: tuple[str, ...],
     device: torch.device,
-) -> tuple[nn.Module, dict, int | None]:
+) -> tuple[nn.Module, dict, int | None, int]:
     """Load a complete model checkpoint and verify its breed ordering."""
 
     checkpoint = torch.load(
@@ -134,6 +135,13 @@ def load_model_checkpoint(
 
     if checkpoint_breed_names != expected_breed_names:
         raise ValueError("Checkpoint breed ordering does not match the current dataset")
+
+    model_input_size = int(
+        checkpoint.get("model_input_size", DEFAULT_MODEL_INPUT_SIZE)
+    )
+
+    if model_input_size <= 0:
+        raise ValueError("Checkpoint model input size must be positive")
 
     model_state_dict = checkpoint["model_state_dict"]
 
@@ -151,7 +159,7 @@ def load_model_checkpoint(
     model.load_state_dict(model_state_dict)
     model.eval()
 
-    return model, checkpoint, classifier_hidden_features
+    return model, checkpoint, classifier_hidden_features, model_input_size
 
 
 def evaluate_model(
@@ -333,10 +341,12 @@ def main() -> None:
     training_paths = load_split_paths(TRAIN_SPLIT_PATH)
     breed_names, breed_to_id = build_breed_mapping(training_paths)
 
-    model, checkpoint, classifier_hidden_features = load_model_checkpoint(
-        checkpoint_path=checkpoint_path,
-        expected_breed_names=breed_names,
-        device=device,
+    model, checkpoint, classifier_hidden_features, model_input_size = (
+        load_model_checkpoint(
+            checkpoint_path=checkpoint_path,
+            expected_breed_names=breed_names,
+            device=device,
+        )
     )
 
     validation_paths = load_split_paths(VALIDATION_SPLIT_PATH)
@@ -344,6 +354,7 @@ def main() -> None:
     validation_dataset = TsinghuaDogsDataset(
         validation_paths,
         breed_to_id,
+        model_input_size=model_input_size,
     )
 
     validation_data_loader = DataLoader(
@@ -384,6 +395,7 @@ def main() -> None:
     print(f"Checkpoint: {checkpoint_path.resolve()}")
     print(f"Evaluation device: {device}")
     print(f"Classifier hidden features: {classifier_hidden_features}")
+    print(f"Model input size: {model_input_size} × {model_input_size}")
     print(f"Checkpoint epoch: {checkpoint['epoch']}")
     print(f"Saved validation loss: {checkpoint['validation_loss']:.4f}")
     print("Saved top-1 accuracy: " f"{checkpoint['validation_accuracy']:.2%}")

@@ -200,11 +200,14 @@ def save_training_checkpoint(
     validation_loss: float,
     validation_accuracy: float,
     best_validation_loss: float,
+    model_input_size: int = 224,
     learning_rate_scheduler: torch.optim.lr_scheduler.LRScheduler | None = None,
     sampler_generator: torch.Generator | None = None,
     early_stopping_counter: int = 0,
 ) -> None:
     """Save enough training state to resume from the current epoch."""
+    if model_input_size <= 0:
+        raise ValueError("Model input size must be positive")
 
     checkpoint_path.parent.mkdir(
         parents=True,
@@ -220,6 +223,7 @@ def save_training_checkpoint(
         "validation_loss": validation_loss,
         "validation_accuracy": validation_accuracy,
         "best_validation_loss": best_validation_loss,
+        "model_input_size": model_input_size,
         "learning_rate_scheduler_state_dict": (
             learning_rate_scheduler.state_dict()
             if learning_rate_scheduler is not None
@@ -241,6 +245,7 @@ def load_training_checkpoint(
     gradient_scaler: torch.amp.GradScaler,
     expected_breed_names: tuple[str, ...],
     device: torch.device,
+    expected_model_input_size: int = 224,
     learning_rate_scheduler: torch.optim.lr_scheduler.LRScheduler | None = None,
     sampler_generator: torch.Generator | None = None,
 ) -> tuple[int, float, int]:
@@ -251,6 +256,18 @@ def load_training_checkpoint(
         map_location=device,
         weights_only=True,
     )
+
+    if expected_model_input_size <= 0:
+        raise ValueError("Expected model input size must be positive")
+
+    checkpoint_model_input_size = int(checkpoint.get("model_input_size", 224))
+
+    if checkpoint_model_input_size != expected_model_input_size:
+        raise ValueError(
+            "Checkpoint model input size does not match the current experiment: "
+            f"checkpoint={checkpoint_model_input_size}, "
+            f"expected={expected_model_input_size}"
+        )
 
     checkpoint_breed_names = tuple(checkpoint["breed_names"])
 
