@@ -19,3 +19,5 @@ export {
   type BreedCropTransform,
   type LetterboxedBreedCrop,
 } from "./letterboxBreedCrop.js";
+
+export { createBreedClassifierTensor } from "./createBreedClassifierTensor.js";
