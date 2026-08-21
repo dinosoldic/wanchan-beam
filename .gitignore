@@ -26,6 +26,7 @@ runs/*
 ml/artifacts/**/*.onnx
 ml/artifacts/classifier/checkpoints/*
 ml/docs/learn/*
+ml/docs/*.docx
 
 # Logs and operating-system files
 *.log
