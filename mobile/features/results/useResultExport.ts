@@ -2,7 +2,7 @@ import { useCallback, type RefObject } from "react";
 import { isRunningInExpoGo } from "expo";
 import * as Sharing from "expo-sharing";
 import { captureRef } from "react-native-view-shot";
-import { Alert, Platform, type View } from "react-native";
+import { Alert, type View } from "react-native";
 
 interface UseResultExportOptions {
   resultRef: RefObject<View | null>;
@@ -21,28 +21,6 @@ export function useResultExport({
     setError(null);
 
     try {
-      if (Platform.OS === "web") {
-        const { default: domToImage } = await import("dom-to-image");
-
-        const dataUrl = await domToImage.toPng(
-          resultRef.current as unknown as Node,
-          {
-            quality: 1,
-          },
-        );
-
-        const downloadLink = document.createElement("a");
-
-        downloadLink.download = `wanchan-beam-${Date.now()}.png`;
-        downloadLink.href = dataUrl;
-
-        document.body.appendChild(downloadLink);
-        downloadLink.click();
-        downloadLink.remove();
-
-        return;
-      }
-
       if (isRunningInExpoGo()) {
         setError("Photo access is required to save the scanned image.");
         return;
@@ -78,7 +56,7 @@ export function useResultExport({
   }, [resultRef, setError]);
 
   const shareResult = useCallback(async () => {
-    if (Platform.OS === "web" || !resultRef.current) {
+    if (!resultRef.current) {
       return;
     }
 

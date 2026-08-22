@@ -1,5 +1,5 @@
 import { useRouter } from "expo-router";
-import { Image, Platform, Pressable, StyleSheet, Text } from "react-native";
+import { Image, Pressable, StyleSheet, Text } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 export default function HomeScreen() {
@@ -8,7 +8,7 @@ export default function HomeScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <Image
-        source={require("../assets/logo.png")}
+        source={require("../assets/logo/splash-icon.png")}
         style={styles.logo}
         resizeMode="contain"
         accessibilityLabel="WanChan Beam logo"
@@ -16,10 +16,6 @@ export default function HomeScreen() {
 
       <Pressable
         onPress={() => {
-          if (Platform.OS === "web") {
-            (document.activeElement as HTMLElement | null)?.blur();
-          }
-
           router.push("/camera");
         }}
         accessibilityRole="button"
@@ -33,10 +29,6 @@ export default function HomeScreen() {
       </Pressable>
       <Pressable
         onPress={() => {
-          if (Platform.OS === "web") {
-            (document.activeElement as HTMLElement | null)?.blur();
-          }
-
           router.push("/upload");
         }}
         accessibilityRole="button"

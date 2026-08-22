@@ -1,14 +1,7 @@
 import { useState, useRef } from "react";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
-import {
-  Image,
-  Platform,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
+import { Image, Pressable, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import {
@@ -194,23 +187,21 @@ export default function UploadScreen() {
                   <Ionicons name="download-outline" size={27} color="#FFF8EE" />
                 </Pressable>
 
-                {Platform.OS !== "web" && (
-                  <Pressable
-                    onPress={shareResult}
-                    accessibilityRole="button"
-                    accessibilityLabel="Share scanned image"
-                    style={({ pressed }) => [
-                      styles.iconButton,
-                      pressed && styles.iconButtonPressed,
-                    ]}
-                  >
-                    <Ionicons
-                      name="paper-plane-outline"
-                      size={25}
-                      color="#FFF8EE"
-                    />
-                  </Pressable>
-                )}
+                <Pressable
+                  onPress={shareResult}
+                  accessibilityRole="button"
+                  accessibilityLabel="Share scanned image"
+                  style={({ pressed }) => [
+                    styles.iconButton,
+                    pressed && styles.iconButtonPressed,
+                  ]}
+                >
+                  <Ionicons
+                    name="paper-plane-outline"
+                    size={25}
+                    color="#FFF8EE"
+                  />
+                </Pressable>
               </View>
             ) : scanError ? null : (
               <Pressable

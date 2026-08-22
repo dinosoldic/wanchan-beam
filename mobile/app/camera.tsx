@@ -1,55 +1,107 @@
-import { useRef, useState } from "react";
-import { useCameraPermissions, CameraView } from "expo-camera";
+import { useCallback, useMemo, useState } from "react";
 import * as FileSystem from "expo-file-system/legacy";
-import { useRouter } from "expo-router";
-import { Image, Pressable, StyleSheet, Text, View } from "react-native";
+import { useFocusEffect, useRouter } from "expo-router";
+import {
+  Image,
+  Linking,
+  StyleSheet,
+  Pressable,
+  Text,
+  View,
+} from "react-native";
+import {
+  Camera,
+  useCameraPermission,
+  usePhotoOutput,
+} from "react-native-vision-camera";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { setCapturedPhoto } from "@/features/camera/capturedPhotoStore";
 
 export default function CameraScreen() {
   const router = useRouter();
-  const [permission, requestPermission] = useCameraPermissions();
-  const cameraRef = useRef<CameraView>(null);
+  const { hasPermission, canRequestPermission, requestPermission } =
+    useCameraPermission();
+
+  const photoOutput = usePhotoOutput({
+    containerFormat: "jpeg",
+    quality: 0.9,
+    qualityPrioritization: "quality",
+  });
+  const cameraOutputs = useMemo(() => [photoOutput], [photoOutput]);
+
+  const [isCameraActive, setIsCameraActive] = useState(false);
   const [isCameraReady, setIsCameraReady] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
 
+  // Stop the native camera session while another route is in front of this one.
+  useFocusEffect(
+    useCallback(() => {
+      setIsCameraActive(true);
+
+      return () => {
+        setIsCameraActive(false);
+        setIsCameraReady(false);
+      };
+    }, []),
+  );
+
+  async function handleCameraPermission() {
+    if (canRequestPermission) {
+      await requestPermission();
+      return;
+    }
+
+    // Once permission is permanently denied, only system settings can change it.
+    await Linking.openSettings();
+  }
+
   async function handleTakePhoto() {
-    if (!cameraRef.current || !isCameraReady || isScanning) {
+    if (!isCameraReady || isScanning) {
       return;
     }
 
     setIsScanning(true);
 
     try {
-      const photo = await cameraRef.current.takePictureAsync({
-        quality: 0.9,
-      });
+      const photo = await photoOutput.capturePhoto(
+        {
+          flashMode: "off",
+        },
+        {},
+      );
 
-      if (!FileSystem.documentDirectory) {
-        throw new Error("The app storage is unavailable.");
+      try {
+        if (!FileSystem.documentDirectory) {
+          throw new Error("The app storage is unavailable.");
+        }
+
+        const temporaryPhotoPath = await photo.saveToTemporaryFileAsync();
+        const temporaryPhotoUri = `file://${temporaryPhotoPath}`;
+        const storedPhotoUri = `${FileSystem.documentDirectory}wanchan-capture-${Date.now()}.jpg`;
+
+        await FileSystem.copyAsync({
+          from: temporaryPhotoUri,
+          to: storedPhotoUri,
+        });
+
+        const storedPhotoInfo = await FileSystem.getInfoAsync(storedPhotoUri);
+
+        if (!storedPhotoInfo.exists) {
+          throw new Error("The captured photo could not be stored.");
+        }
+
+        setCapturedPhoto({
+          uri: storedPhotoUri,
+          width: photo.width,
+          height: photo.height,
+        });
+
+        router.push("/staticScan");
+      } finally {
+        // VisionCamera photos retain native memory until explicitly released.
+        photo.dispose();
       }
-
-      const storedPhotoUri = `${FileSystem.documentDirectory}wanchan-capture-${Date.now()}.jpg`;
-
-      await FileSystem.copyAsync({
-        from: photo.uri,
-        to: storedPhotoUri,
-      });
-
-      const storedPhotoInfo = await FileSystem.getInfoAsync(storedPhotoUri);
-
-      if (!storedPhotoInfo.exists) {
-        throw new Error("The captured photo could not be stored.");
-      }
-
-      setCapturedPhoto({
-        uri: storedPhotoUri,
-        width: photo.width,
-        height: photo.height,
-      });
-
-      router.push("/staticScan");
     } catch (error) {
       console.error("Photo capture failed:", error);
     } finally {
@@ -57,11 +109,7 @@ export default function CameraScreen() {
     }
   }
 
-  if (!permission) {
-    return <SafeAreaView style={styles.container} />;
-  }
-
-  if (!permission.granted) {
+  if (!hasPermission) {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.blurCameraView}>
@@ -90,10 +138,14 @@ export default function CameraScreen() {
           </Text>
 
           <Pressable
-            onPress={requestPermission}
+            onPress={() => {
+              void handleCameraPermission();
+            }}
             style={styles.permissionButton}
           >
-            <Text style={styles.permissionButtonText}>Allow camera</Text>
+            <Text style={styles.permissionButtonText}>
+              {canRequestPermission ? "Allow camera" : "Open settings"}
+            </Text>
           </Pressable>
         </View>
       </SafeAreaView>
@@ -103,18 +155,29 @@ export default function CameraScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.cameraView}>
-        <CameraView
-          ref={cameraRef}
+        <Camera
           style={styles.camera}
-          facing="back"
-          onCameraReady={() => {
+          device="back"
+          isActive={isCameraActive}
+          outputs={cameraOutputs}
+          resizeMode="cover"
+          onStarted={() => {
             setIsCameraReady(true);
           }}
+          onStopped={() => {
+            setIsCameraReady(false);
+          }}
+          onError={(error) => {
+            setIsCameraReady(false);
+            console.error("Camera session failed:", error);
+          }}
         />
+
         <View style={[styles.corner, styles.topLeft]} />
         <View style={[styles.corner, styles.topRight]} />
         <View style={[styles.corner, styles.bottomLeft]} />
         <View style={[styles.corner, styles.bottomRight]} />
+
         <View style={styles.scanControls}>
           <Pressable
             accessibilityRole="button"

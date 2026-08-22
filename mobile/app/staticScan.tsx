@@ -1,12 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import {
-  Image,
-  StyleSheet,
-  Text,
-  View,
-  Platform,
-  Pressable,
-} from "react-native";
+import { Image, StyleSheet, Text, View, Pressable } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation, useRouter } from "expo-router";
@@ -215,23 +208,21 @@ export default function StaticScanScreen() {
                 <Ionicons name="download-outline" size={27} color="#FFF8EE" />
               </Pressable>
 
-              {Platform.OS !== "web" && (
-                <Pressable
-                  onPress={shareResult}
-                  accessibilityRole="button"
-                  accessibilityLabel="Share scanned image"
-                  style={({ pressed }) => [
-                    styles.iconButton,
-                    pressed && styles.iconButtonPressed,
-                  ]}
-                >
-                  <Ionicons
-                    name="paper-plane-outline"
-                    size={25}
-                    color="#FFF8EE"
-                  />
-                </Pressable>
-              )}
+              <Pressable
+                onPress={shareResult}
+                accessibilityRole="button"
+                accessibilityLabel="Share scanned image"
+                style={({ pressed }) => [
+                  styles.iconButton,
+                  pressed && styles.iconButtonPressed,
+                ]}
+              >
+                <Ionicons
+                  name="paper-plane-outline"
+                  size={25}
+                  color="#FFF8EE"
+                />
+              </Pressable>
             </View>
           )}
         </View>
