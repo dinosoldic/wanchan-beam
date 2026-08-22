@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import * as FileSystem from "expo-file-system/legacy";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useResizer } from "react-native-vision-camera-resizer";
-import { createSynchronizable } from "react-native-worklets";
+import { createSynchronizable, scheduleOnRN } from "react-native-worklets";
 import { useTensorflowModel } from "react-native-fast-tflite";
 import {
   Image,
@@ -23,8 +23,9 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { setCapturedPhoto } from "@/features/camera";
 import {
   decodeMobileDetectorOutput,
-  suppressDuplicateDetections,
   mapDetectorDetectionsToFrame,
+  suppressDuplicateDetections,
+  type LiveFrameDetectionResult,
 } from "@/features/inference";
 
 // The npm prestart/preandroid hooks copy the shared versioned model here so
@@ -63,6 +64,21 @@ export default function CameraScreen() {
   const router = useRouter();
   const { hasPermission, canRequestPermission, requestPermission } =
     useCameraPermission();
+
+  const [isCameraActive, setIsCameraActive] = useState(false);
+  const [isCameraReady, setIsCameraReady] = useState(false);
+  const [isScanning, setIsScanning] = useState(false);
+  const [liveDetectionResult, setLiveDetectionResult] =
+    useState<LiveFrameDetectionResult | null>(null);
+
+  // React state can only be updated on the normal React Native JS thread.
+  // The frame Worklet schedules this callback instead of calling setState itself.
+  const handleLiveDetectionResult = useCallback(
+    (result: LiveFrameDetectionResult) => {
+      setLiveDetectionResult(result);
+    },
+    [],
+  );
 
   const photoOutput = usePhotoOutput({
     containerFormat: "jpeg",
@@ -184,6 +200,10 @@ export default function CameraScreen() {
             frame.orientation,
           );
 
+          // Transfer only small decoded objects across the thread boundary. Camera pixels
+          // and model buffers remain native and never enter React state.
+          scheduleOnRN(handleLiveDetectionResult, frameDetectionResult);
+
           // Log only the first successful inference so console traffic cannot
           // affect subsequent timing or camera smoothness.
           if (!hasLoggedDetectorOutput.getBlocking()) {
@@ -240,10 +260,6 @@ export default function CameraScreen() {
     [photoOutput, frameOutput],
   );
 
-  const [isCameraActive, setIsCameraActive] = useState(false);
-  const [isCameraReady, setIsCameraReady] = useState(false);
-  const [isScanning, setIsScanning] = useState(false);
-
   // Log the tensor contract reported by the phone. It must match the exported
   // detector before camera pixels are ever passed into the model.
   useEffect(() => {
@@ -273,6 +289,7 @@ export default function CameraScreen() {
       return () => {
         setIsCameraActive(false);
         setIsCameraReady(false);
+        setLiveDetectionResult(null);
       };
     }, []),
   );
@@ -345,6 +362,8 @@ export default function CameraScreen() {
       setIsScanning(false);
     }
   }
+
+  const liveDogCount = liveDetectionResult?.detections.length ?? 0;
 
   if (!hasPermission) {
     return (
@@ -431,7 +450,7 @@ export default function CameraScreen() {
           />
           <Text style={styles.liveDetectorStatusText}>
             {mobileDetector.state === "loaded"
-              ? "Live detector ready"
+              ? `Live detector ready · ${liveDogCount} detected`
               : mobileDetector.state === "error"
                 ? "Live detector unavailable"
                 : "Loading live detector..."}
