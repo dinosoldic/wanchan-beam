@@ -515,7 +515,7 @@ export default function CameraScreen() {
         <View pointerEvents="none" style={styles.liveDetectionOverlay}>
           {livePreviewDetections.map((detection, index) => (
             <View
-              key={`live-dog-${index}`}
+              key={`live-dog-${detection.trackId ?? index}`}
               style={[
                 styles.liveDetectionBox,
                 {

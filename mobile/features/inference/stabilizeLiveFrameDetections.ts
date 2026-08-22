@@ -83,13 +83,14 @@ function smoothBox(
   };
 }
 
-function removeTrackingMetadata(
+function toVisibleDetection(
   track: LiveDogDetectionTrack,
 ): LiveFrameDogDetection {
   return {
     classId: track.classId,
     label: track.label,
     confidence: track.confidence,
+    trackId: track.trackId,
     box: track.box,
   };
 }
@@ -197,7 +198,7 @@ export function stabilizeLiveFrameDetections(
       frame: currentResult.frame,
       detections: nextTracks
         .filter((track) => track.isConfirmed)
-        .map(removeTrackingMetadata),
+        .map(toVisibleDetection),
     },
   };
 }

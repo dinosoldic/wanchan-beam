@@ -17,6 +17,9 @@ export interface LiveFrameDogDetection {
   label: "dog";
   confidence: number;
 
+  // Assigned after a detection becomes part of a temporal track.
+  trackId?: number;
+
   // These coordinates refer to the correctly oriented camera frame.
   box: LiveDetectionBox;
 }
