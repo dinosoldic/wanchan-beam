@@ -142,5 +142,60 @@
       "onnxRuntimeVersion": "1.28.0",
       "executionProvider": "CPUExecutionProvider"
     }
+  },
+  "mobileClassifier": {
+    "name": "MobileNetV3-Large",
+    "task": "dog-breed-classification",
+    "format": "litert",
+    "artifact": "mobile-breed-classifier.tflite",
+    "sha256": "3389bfa25a3dcdff45dd043290ffbcdf6577235a50e298c59eb5069aef5684fb",
+    "fileSizeBytes": 17587280,
+    "sourceCheckpoint": {
+      "name": "breed-classifier.pt",
+      "sha256": "534bf22ccd19dd45bf8f046d2c6922fcdf901b5aff1d0dd27a4d3bf18a390630"
+    },
+    "architecture": {
+      "classifierHiddenFeatures": 1280,
+      "dropoutProbability": 0.4
+    },
+    "exporter": {
+      "name": "litert-torch",
+      "version": "0.9.3",
+      "pytorchVersion": "2.12.1+cpu",
+      "quantization": "fp32"
+    },
+    "preprocessing": "preprocessing.json",
+    "labels": {
+      "artifact": "labels.json",
+      "format": "ordered-array",
+      "idMapping": "arrayIndex",
+      "count": 130,
+      "orderingSha256": "45900cb538614ded4bed7c5197abb233570c7541635a3b59c1d3fba13c040ac3"
+    },
+    "input": {
+      "index": 0,
+      "shape": [1, 3, 256, 256],
+      "layout": "NCHW",
+      "dynamicBatch": false,
+      "dataType": "float32"
+    },
+    "output": {
+      "index": 0,
+      "shape": [1, 130],
+      "type": "logits",
+      "dynamicBatch": false,
+      "dataType": "float32"
+    },
+    "selection": {
+      "confidenceThreshold": 0.4
+    },
+    "verification": {
+      "validationExamples": 5200,
+      "maximumAbsoluteLogitDifference": 0.00005126,
+      "meanAbsoluteLogitDifference": 0.0000036035,
+      "matchingTop1Ids": 5200,
+      "matchingOrderedTop2Ids": 5200,
+      "delegate": "XNNPACK"
+    }
   }
 }
