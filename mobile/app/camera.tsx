@@ -3,7 +3,6 @@ import * as FileSystem from "expo-file-system/legacy";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useResizer } from "react-native-vision-camera-resizer";
 import { createSynchronizable, scheduleOnRN } from "react-native-worklets";
-import { useTensorflowModel } from "react-native-fast-tflite";
 import {
   Image,
   Linking,
@@ -36,15 +35,12 @@ import {
   createBreedClassifierInput,
   decodeMobileBreedClassifierOutput,
   findBreedClassificationDetection,
+  useMobileInferenceModels,
   type LiveBreedPrediction,
   type LiveFrameDetectionResult,
   type LiveBreedClassificationRequest,
 } from "@/features/inference";
 
-// The npm prestart/preandroid hooks copy shared versioned assets here so
-// Metro can bundle them without crossing the Windows W:/C: drive boundary.
-import mobileBreedClassifierAsset from "../generated-assets/models/mobile-breed-classifier.tflite";
-import mobileDetectorAsset from "../generated-assets/models/mobile-detector.tflite";
 import breedLabels from "../generated-assets/models/labels.json";
 
 interface LiveBreedClassificationResult {
@@ -88,6 +84,7 @@ const DETECTOR_OUTPUT_BYTE_LENGTH =
 /// funcs
 export default function CameraScreen() {
   const router = useRouter();
+  const { mobileDetector, mobileBreedClassifier } = useMobileInferenceModels();
   const { hasPermission, canRequestPermission, requestPermission } =
     useCameraPermission();
 
@@ -305,17 +302,7 @@ export default function CameraScreen() {
     qualityPrioritization: "quality",
   });
 
-  // An empty delegate list deliberately starts with the CPU backend. This gives
-  // us a reliable baseline before testing Android GPU or NNAPI acceleration.
-  const mobileDetector = useTensorflowModel(mobileDetectorAsset, []);
   const detectorModel = mobileDetector.model;
-
-  // Use the same reliable CPU baseline for the classifier.
-  const mobileBreedClassifier = useTensorflowModel(
-    mobileBreedClassifierAsset,
-    [],
-  );
-
   const breedClassifierModel = mobileBreedClassifier.model;
 
   // Produce the detector's planar RGB tensor directly from the native frame.
@@ -623,8 +610,8 @@ export default function CameraScreen() {
           height: photo.height,
         });
 
-        // The scan route reads this stored URI and sends the still image through
-        // the existing server-side detector/classifier pipeline.
+        // The scan route prefers server inference and uses these shared mobile
+        // models if the request fails or exceeds its timeout.
         router.push("/staticScan");
       } finally {
         // VisionCamera photos retain native memory until explicitly released.
@@ -766,7 +753,7 @@ export default function CameraScreen() {
           />
           <Text style={styles.liveDetectorStatusText}>
             {mobileDetector.state === "loaded"
-              ? `Live detector ready · ${liveDogCount} detected`
+              ? "Live detector ready"
               : mobileDetector.state === "error"
                 ? "Live detector unavailable"
                 : "Loading live detector..."}
