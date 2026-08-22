@@ -39,3 +39,6 @@ export {
 
 export { decodeMobileBreedClassifierOutput } from "./decodeMobileBreedClassifierOutput";
 export type { LiveBreedPrediction } from "./decodeMobileBreedClassifierOutput";
+
+export { findBreedClassificationDetection } from "./findBreedClassificationDetection";
+export type { LiveBreedClassificationRequest } from "./findBreedClassificationDetection";

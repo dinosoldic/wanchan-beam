@@ -91,6 +91,7 @@ function toVisibleDetection(
     label: track.label,
     confidence: track.confidence,
     trackId: track.trackId,
+    detectorBox: track.detectorBox,
     box: track.box,
   };
 }

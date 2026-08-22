@@ -20,6 +20,9 @@ export interface LiveFrameDogDetection {
   // Assigned after a detection becomes part of a temporal track.
   trackId?: number;
 
+  // Latest 544x544 model-space box used to create a breed crop.
+  detectorBox: LiveDetectionBox;
+
   // These coordinates refer to the correctly oriented camera frame.
   box: LiveDetectionBox;
 }
@@ -96,6 +99,10 @@ export function mapDetectorDetectionsToFrame(
       classId: detection.classId,
       label: detection.label,
       confidence: detection.confidence,
+
+      // Keep the original 544x544 coordinates for breed classification.
+      detectorBox: detection.box,
+
       box: {
         x1,
         y1,

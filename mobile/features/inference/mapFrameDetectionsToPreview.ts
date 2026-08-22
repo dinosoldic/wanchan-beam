@@ -7,7 +7,7 @@ import type {
 
 export interface LivePreviewDogDetection extends Omit<
   LiveFrameDogDetection,
-  "box"
+  "box" | "detectorBox"
 > {
   // These coordinates refer to the visible camera preview.
   box: LiveDetectionBox;
