@@ -21,12 +21,16 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { setCapturedPhoto } from "@/features/camera";
-import { decodeMobileDetectorOutput } from "@/features/inference";
+import {
+  decodeMobileDetectorOutput,
+  suppressDuplicateDetections,
+} from "@/features/inference";
 
 // The npm prestart/preandroid hooks copy the shared versioned model here so
 // Metro can bundle it without crossing the Windows W:/C: drive boundary.
 import mobileDetectorAsset from "../generated-assets/models/mobile-detector.tflite";
 
+//// consts
 const LIVE_FRAME_RESOLUTION = {
   width: 640,
   height: 480,
@@ -53,6 +57,7 @@ const DETECTOR_OUTPUT_BYTE_LENGTH =
   DETECTOR_VALUES_PER_ROW *
   Float32Array.BYTES_PER_ELEMENT;
 
+/// funcs
 export default function CameraScreen() {
   const router = useRouter();
   const { hasPermission, canRequestPermission, requestPermission } =
@@ -86,10 +91,7 @@ export default function CameraScreen() {
     () => createSynchronizable(false),
     [],
   );
-  const lastDetectionLogTime = useMemo(
-    () => createSynchronizable(0),
-    [],
-  );
+  const lastDetectionLogTime = useMemo(() => createSynchronizable(0), []);
 
   const frameResizer = liveFrameResizer.resizer;
 
@@ -168,8 +170,10 @@ export default function CameraScreen() {
           }
 
           // Convert the model's 300 raw rows into valid dog detections.
-          // Coordinates still refer to the square detector input.
-          const dogDetections = decodeMobileDetectorOutput(detectorOutput);
+          // and supress boxes
+          const dogDetections = suppressDuplicateDetections(
+            decodeMobileDetectorOutput(detectorOutput),
+          );
 
           // Log only the first successful inference so console traffic cannot
           // affect subsequent timing or camera smoothness.
@@ -184,8 +188,7 @@ export default function CameraScreen() {
             });
           }
 
-          const previousDetectionLogTime =
-            lastDetectionLogTime.getBlocking();
+          const previousDetectionLogTime = lastDetectionLogTime.getBlocking();
 
           if (
             currentTime - previousDetectionLogTime >=
