@@ -28,7 +28,9 @@ export async function buildApp(
   options: BuildAppOptions = {},
 ): Promise<FastifyInstance> {
   const app = Fastify({
-    logger: options.logger ?? true,
+    logger: options.logger ?? {
+      level: process.env.LOG_LEVEL ?? "warn",
+    },
   });
 
   const sharedSchemas = await loadSharedSchemas();
@@ -38,27 +40,7 @@ export async function buildApp(
   }
 
   // load models
-  const [detector, breedClassifier] = await Promise.all([
-    loadDetector(),
-    loadBreedClassifier(),
-  ]);
-
-  app.log.info(
-    {
-      inputs: detector.inputNames,
-      outputs: detector.outputNames,
-    },
-    "Detector loaded",
-  );
-
-  app.log.info(
-    {
-      inputs: breedClassifier.session.inputNames,
-      outputs: breedClassifier.session.outputNames,
-      labelCount: breedClassifier.labels.length,
-    },
-    "Breed classifier loaded",
-  );
+  await Promise.all([loadDetector(), loadBreedClassifier()]);
 
   await app.register(multipart, {
     limits: {
