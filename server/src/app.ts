@@ -1,4 +1,3 @@
-import cors from "@fastify/cors";
 import multipart from "@fastify/multipart";
 import Fastify, { type FastifyInstance } from "fastify";
 import { readFile } from "node:fs/promises";
@@ -33,10 +32,6 @@ export async function buildApp(
 ): Promise<FastifyInstance> {
   const app = Fastify({
     logger: options.logger ?? true,
-  });
-
-  await app.register(cors, {
-    origin: getCorsOrigin(),
   });
 
   const sharedSchemas = await loadSharedSchemas();
@@ -80,17 +75,4 @@ export async function buildApp(
   await app.register(detectRoute);
 
   return app;
-}
-
-function getCorsOrigin(): boolean | string[] {
-  const configuredOrigins = (process.env.CORS_ORIGIN ?? "")
-    .split(",")
-    .map((origin) => origin.trim())
-    .filter((origin) => origin.length > 0);
-
-  if (configuredOrigins.length > 0) {
-    return configuredOrigins;
-  }
-
-  return process.env.NODE_ENV !== "production";
 }
