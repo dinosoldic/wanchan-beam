@@ -11,12 +11,14 @@ import {
   Pressable,
   Text,
   View,
+  type LayoutChangeEvent,
 } from "react-native";
 import {
   Camera,
   useCameraPermission,
-  usePhotoOutput,
   useFrameOutput,
+  useOrientation,
+  usePhotoOutput,
 } from "react-native-vision-camera";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -24,8 +26,10 @@ import { setCapturedPhoto } from "@/features/camera";
 import {
   decodeMobileDetectorOutput,
   mapDetectorDetectionsToFrame,
+  mapFrameDetectionsToPreview,
   suppressDuplicateDetections,
   type LiveFrameDetectionResult,
+  rotateFrameDetectionsToOrientation,
 } from "@/features/inference";
 
 // The npm prestart/preandroid hooks copy the shared versioned model here so
@@ -65,17 +69,45 @@ export default function CameraScreen() {
   const { hasPermission, canRequestPermission, requestPermission } =
     useCameraPermission();
 
+  // Device orientation keeps inference pixels upright. Interface orientation
+  // represents the React layout, which may remain portrait when rotation is locked.
+  const deviceOrientation = useOrientation("device");
+  const interfaceOrientation = useOrientation("interface");
+
   const [isCameraActive, setIsCameraActive] = useState(false);
   const [isCameraReady, setIsCameraReady] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
   const [liveDetectionResult, setLiveDetectionResult] =
     useState<LiveFrameDetectionResult | null>(null);
+  const [cameraPreviewSize, setCameraPreviewSize] = useState({
+    width: 0,
+    height: 0,
+  });
 
   // React state can only be updated on the normal React Native JS thread.
   // The frame Worklet schedules this callback instead of calling setState itself.
   const handleLiveDetectionResult = useCallback(
     (result: LiveFrameDetectionResult) => {
       setLiveDetectionResult(result);
+    },
+    [],
+  );
+
+  // React Native reports the final preview size after percentage-based layout
+  // has been resolved into physical screen coordinates.
+  const handleCameraViewLayout = useCallback(
+    ({
+      nativeEvent: {
+        layout: { width, height },
+      },
+    }: LayoutChangeEvent) => {
+      setCameraPreviewSize((previousSize) => {
+        if (previousSize.width === width && previousSize.height === height) {
+          return previousSize;
+        }
+
+        return { width, height };
+      });
     },
     [],
   );
@@ -117,6 +149,10 @@ export default function CameraScreen() {
     targetResolution: LIVE_FRAME_RESOLUTION,
     pixelFormat: "yuv",
     dropFramesWhileBusy: true,
+
+    // The resizer does not apply Frame.orientation metadata. Rotate the native
+    // buffer first so model pixels, detector boxes, and the preview are upright.
+    enablePhysicalBufferRotation: true,
 
     onFrame(frame) {
       "worklet";
@@ -365,6 +401,35 @@ export default function CameraScreen() {
 
   const liveDogCount = liveDetectionResult?.detections.length ?? 0;
 
+  const livePreviewDetections = useMemo(() => {
+    if (
+      liveDetectionResult === null ||
+      deviceOrientation == null ||
+      interfaceOrientation == null ||
+      cameraPreviewSize.width <= 0 ||
+      cameraPreviewSize.height <= 0
+    ) {
+      return [];
+    }
+
+    const interfaceDetectionResult = rotateFrameDetectionsToOrientation(
+      liveDetectionResult,
+      deviceOrientation,
+      interfaceOrientation,
+    );
+
+    return mapFrameDetectionsToPreview(
+      interfaceDetectionResult,
+      cameraPreviewSize.width,
+      cameraPreviewSize.height,
+    ).detections;
+  }, [
+    cameraPreviewSize,
+    deviceOrientation,
+    interfaceOrientation,
+    liveDetectionResult,
+  ]);
+
   if (!hasPermission) {
     return (
       <SafeAreaView style={styles.container}>
@@ -410,7 +475,7 @@ export default function CameraScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.cameraView}>
+      <View style={styles.cameraView} onLayout={handleCameraViewLayout}>
         {/* Both outputs share this preview; adding live detection must not alter
             the existing photo capture flow. */}
         <Camera
@@ -419,6 +484,8 @@ export default function CameraScreen() {
           isActive={isCameraActive}
           outputs={cameraOutputs}
           resizeMode="cover"
+          implementationMode="compatible"
+          orientationSource="device"
           onStarted={() => {
             setIsCameraReady(true);
           }}
@@ -431,13 +498,31 @@ export default function CameraScreen() {
           }}
         />
 
+        {/* This non-interactive layer verifies that detector coordinates align
+            with the cropped VisionCamera preview. Controls remain touchable. */}
+        <View pointerEvents="none" style={styles.liveDetectionOverlay}>
+          {livePreviewDetections.map((detection, index) => (
+            <View
+              key={`live-dog-${index}`}
+              style={[
+                styles.liveDetectionBox,
+                {
+                  left: detection.box.x1,
+                  top: detection.box.y1,
+                  width: detection.box.x2 - detection.box.x1,
+                  height: detection.box.y2 - detection.box.y1,
+                },
+              ]}
+            />
+          ))}
+        </View>
+
         <View style={[styles.corner, styles.topLeft]} />
         <View style={[styles.corner, styles.topRight]} />
         <View style={[styles.corner, styles.bottomLeft]} />
         <View style={[styles.corner, styles.bottomRight]} />
 
-        {/* For now this reports model loading only. It will represent active
-            live inference once frames are connected to the detector. */}
+        {/* Report both native model readiness and the latest live dog count. */}
         <View style={styles.liveDetectorStatus}>
           <View
             style={[
@@ -498,6 +583,16 @@ const styles = StyleSheet.create({
   },
   camera: {
     flex: 1,
+  },
+  liveDetectionOverlay: {
+    ...StyleSheet.absoluteFill,
+  },
+  liveDetectionBox: {
+    position: "absolute",
+    borderWidth: 2,
+    borderColor: "#F3A58F",
+    borderRadius: 8,
+    backgroundColor: "rgba(243, 165, 143, 0.08)",
   },
   placeholderImage: {
     position: "absolute",

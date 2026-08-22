@@ -11,3 +11,10 @@ export type {
   LiveFrameDogDetection,
   LiveFrameSize,
 } from "./mapDetectorDetectionsToFrame";
+
+export { mapFrameDetectionsToPreview } from "./mapFrameDetectionsToPreview";
+export type {
+  LivePreviewDetectionResult,
+  LivePreviewDogDetection,
+} from "./mapFrameDetectionsToPreview";
+export { rotateFrameDetectionsToOrientation } from "./rotateFrameDetectionsToOrientation";
