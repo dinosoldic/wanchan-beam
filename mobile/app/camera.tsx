@@ -20,7 +20,8 @@ import {
 } from "react-native-vision-camera";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { setCapturedPhoto } from "@/features/camera/capturedPhotoStore";
+import { setCapturedPhoto } from "@/features/camera";
+import { decodeMobileDetectorOutput } from "@/features/inference";
 
 // The npm prestart/preandroid hooks copy the shared versioned model here so
 // Metro can bundle it without crossing the Windows W:/C: drive boundary.
@@ -34,6 +35,10 @@ const LIVE_FRAME_RESOLUTION = {
 const DETECTOR_INPUT_SIZE = 544;
 
 const LIVE_PREPROCESS_INTERVAL_MS = 500;
+
+// Decoding runs at the normal 2 FPS inference rate, but debug output crosses
+// into the React Native console only once every two seconds.
+const LIVE_DETECTION_LOG_INTERVAL_MS = 2_000;
 
 const DETECTOR_INPUT_BYTE_LENGTH =
   DETECTOR_INPUT_SIZE *
@@ -79,6 +84,10 @@ export default function CameraScreen() {
   const hasLoggedDetectorInput = useMemo(() => createSynchronizable(false), []);
   const hasLoggedDetectorOutput = useMemo(
     () => createSynchronizable(false),
+    [],
+  );
+  const lastDetectionLogTime = useMemo(
+    () => createSynchronizable(0),
     [],
   );
 
@@ -158,6 +167,10 @@ export default function CameraScreen() {
             );
           }
 
+          // Convert the model's 300 raw rows into valid dog detections.
+          // Coordinates still refer to the square detector input.
+          const dogDetections = decodeMobileDetectorOutput(detectorOutput);
+
           // Log only the first successful inference so console traffic cannot
           // affect subsequent timing or camera smoothness.
           if (!hasLoggedDetectorOutput.getBlocking()) {
@@ -168,6 +181,21 @@ export default function CameraScreen() {
               outputCount: detectorOutputs.length,
               outputByteLength: detectorOutput.byteLength,
               expectedOutputByteLength: DETECTOR_OUTPUT_BYTE_LENGTH,
+            });
+          }
+
+          const previousDetectionLogTime =
+            lastDetectionLogTime.getBlocking();
+
+          if (
+            currentTime - previousDetectionLogTime >=
+            LIVE_DETECTION_LOG_INTERVAL_MS
+          ) {
+            lastDetectionLogTime.setBlocking(currentTime);
+
+            console.log("Live dog detections:", {
+              count: dogDetections.length,
+              detections: dogDetections,
             });
           }
         } finally {

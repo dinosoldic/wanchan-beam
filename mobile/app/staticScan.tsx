@@ -7,7 +7,7 @@ import { useNavigation, useRouter } from "expo-router";
 import {
   discardCapturedPhoto,
   getCapturedPhoto,
-} from "@/features/camera/capturedPhotoStore";
+} from "@/features/camera";
 import {
   DetectionOverlay,
   getContainedImageLayout,

@@ -1,0 +1,1 @@
+export { decodeMobileDetectorOutput } from "./decodeMobileDetectorOutput";
