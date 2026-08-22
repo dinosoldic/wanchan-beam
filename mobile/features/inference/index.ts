@@ -18,3 +18,13 @@ export type {
   LivePreviewDogDetection,
 } from "./mapFrameDetectionsToPreview";
 export { rotateFrameDetectionsToOrientation } from "./rotateFrameDetectionsToOrientation";
+
+export {
+  createLiveDetectionTrackerState,
+  stabilizeLiveFrameDetections,
+} from "./stabilizeLiveFrameDetections";
+
+export type {
+  LiveDetectionTrackerState,
+  LiveDetectionTrackerUpdate,
+} from "./stabilizeLiveFrameDetections";

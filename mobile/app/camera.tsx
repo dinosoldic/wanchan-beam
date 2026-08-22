@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import * as FileSystem from "expo-file-system/legacy";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useResizer } from "react-native-vision-camera-resizer";
@@ -28,8 +28,10 @@ import {
   mapDetectorDetectionsToFrame,
   mapFrameDetectionsToPreview,
   suppressDuplicateDetections,
-  type LiveFrameDetectionResult,
   rotateFrameDetectionsToOrientation,
+  createLiveDetectionTrackerState,
+  stabilizeLiveFrameDetections,
+  type LiveFrameDetectionResult,
 } from "@/features/inference";
 
 // The npm prestart/preandroid hooks copy the shared versioned model here so
@@ -44,10 +46,10 @@ const LIVE_FRAME_RESOLUTION = {
 
 const DETECTOR_INPUT_SIZE = 544;
 
-const LIVE_PREPROCESS_INTERVAL_MS = 500;
+// Throttle inference without queueing frames.
+const LIVE_INFERENCE_INTERVAL_MS = 300;
 
-// Decoding runs at the normal 2 FPS inference rate, but debug output crosses
-// into the React Native console only once every two seconds.
+// Limit debug output separately from inference.
 const LIVE_DETECTION_LOG_INTERVAL_MS = 2_000;
 
 const DETECTOR_INPUT_BYTE_LENGTH =
@@ -79,19 +81,31 @@ export default function CameraScreen() {
   const [isScanning, setIsScanning] = useState(false);
   const [liveDetectionResult, setLiveDetectionResult] =
     useState<LiveFrameDetectionResult | null>(null);
+  // Tracking history persists between inference updates without causing renders.
+  const liveDetectionTracker = useRef(createLiveDetectionTrackerState());
   const [cameraPreviewSize, setCameraPreviewSize] = useState({
     width: 0,
     height: 0,
   });
 
-  // React state can only be updated on the normal React Native JS thread.
-  // The frame Worklet schedules this callback instead of calling setState itself.
+  // Stabilization runs here after the Worklet transfers its small decoded result.
   const handleLiveDetectionResult = useCallback(
     (result: LiveFrameDetectionResult) => {
-      setLiveDetectionResult(result);
+      const trackerUpdate = stabilizeLiveFrameDetections(
+        liveDetectionTracker.current,
+        result,
+      );
+
+      liveDetectionTracker.current = trackerUpdate.state;
+      setLiveDetectionResult(trackerUpdate.result);
     },
     [],
   );
+
+  // reset tracking on orientation change
+  useEffect(() => {
+    liveDetectionTracker.current = createLiveDetectionTrackerState();
+  }, [deviceOrientation, interfaceOrientation]);
 
   // React Native reports the final preview size after percentage-based layout
   // has been resolved into physical screen coordinates.
@@ -144,7 +158,7 @@ export default function CameraScreen() {
 
   const frameResizer = liveFrameResizer.resizer;
 
-  // Captures all frames but only processes 2 FPS
+  // Captures all frames but only processes up to 4 FPS.
   const frameOutput = useFrameOutput({
     targetResolution: LIVE_FRAME_RESOLUTION,
     pixelFormat: "yuv",
@@ -166,10 +180,7 @@ export default function CameraScreen() {
         const currentTime = performance.now();
         const previousPreprocessTime = lastPreprocessTime.getBlocking();
 
-        if (
-          currentTime - previousPreprocessTime <
-          LIVE_PREPROCESS_INTERVAL_MS
-        ) {
+        if (currentTime - previousPreprocessTime < LIVE_INFERENCE_INTERVAL_MS) {
           return;
         }
 
@@ -326,6 +337,7 @@ export default function CameraScreen() {
         setIsCameraActive(false);
         setIsCameraReady(false);
         setLiveDetectionResult(null);
+        liveDetectionTracker.current = createLiveDetectionTrackerState();
       };
     }, []),
   );
