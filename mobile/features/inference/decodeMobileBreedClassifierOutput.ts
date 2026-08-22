@@ -43,6 +43,8 @@ export function decodeMobileBreedClassifierOutput(
     throw new Error("Breed logit 0 is not finite.");
   }
 
+  // Subtracting the maximum keeps softmax numerically stable. Because the
+  // winning logit's exponent is exactly one, its probability is 1 / the sum.
   let exponentialSum = 0;
 
   for (

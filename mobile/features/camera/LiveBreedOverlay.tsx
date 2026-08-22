@@ -154,6 +154,8 @@ function buildCrowdedCallouts(
     Math.max(previewWidth - EDGE_PADDING * 2, 1),
   );
 
+  // Reserve a stable edge slot for every dog, but leave its label hidden until
+  // that track reaches the front of the asynchronous classification queue.
   const anchors = detections
     .map(
       (detection, index): LiveBreedAnchor => ({
@@ -220,8 +222,8 @@ export function LiveBreedOverlay({
 }: LiveBreedOverlayProps) {
   const [useCrowdedLayout, setUseCrowdedLayout] = useState(false);
 
-  // Hysteresis prevents rapid layout switching when the count alternates
-  // between three and four detections.
+  // Enter edge-callout mode at four dogs, but do not leave until only two
+  // remain. This hysteresis prevents flicker around the crowded threshold.
   useEffect(() => {
     setUseCrowdedLayout((currentLayout) => {
       if (detections.length >= CROWDED_ENTER_COUNT) {

@@ -48,6 +48,8 @@ export function findBreedClassificationDetection(
 ): LiveDogDetection | null {
   "worklet";
 
+  // Raw Worklet detections do not have React's temporal track IDs. Re-associate
+  // the queued track with the current 544x544 box before cropping its pixels.
   let bestDetection: LiveDogDetection | null = null;
   let bestIoU = MINIMUM_REQUEST_IOU;
 

@@ -50,11 +50,8 @@ import breedLabels from "../generated-assets/models/labels.json";
 interface LiveBreedClassificationResult {
   requestId: number;
   trackId: number;
-  detectorConfidence: number;
   prediction: LiveBreedPrediction | null;
   errorMessage: string | null;
-  preprocessingTimeMs: number;
-  inferenceTimeMs: number;
 }
 
 interface CachedLiveBreedPrediction extends LiveBreedPrediction {
@@ -74,9 +71,6 @@ const LIVE_INFERENCE_INTERVAL_MS = 300;
 
 // Classify at most one unclassified track during this interval.
 const BREED_CLASSIFICATION_INTERVAL_MS = 400;
-
-// Limit debug output separately from inference.
-const LIVE_DETECTION_LOG_INTERVAL_MS = 2_000;
 
 const DETECTOR_INPUT_BYTE_LENGTH =
   DETECTOR_INPUT_SIZE *
@@ -114,6 +108,8 @@ export default function CameraScreen() {
     height: 0,
   });
 
+  // Classification is queued on React, consumed on the Worklet, and cached by
+  // stable track ID so a dog is not reclassified on every detector update.
   const breedPredictionsByTrackId = useRef<
     Record<number, CachedLiveBreedPrediction>
   >({});
@@ -263,23 +259,12 @@ export default function CameraScreen() {
         ...result.prediction,
         label,
       };
-
-      console.log(
-        "Live breed classification cached:",
-        JSON.stringify({
-          trackId: result.trackId,
-          detectorConfidence: result.detectorConfidence,
-          breedLabel: label,
-          breedConfidence: result.prediction.confidence,
-          preprocessingTimeMs: result.preprocessingTimeMs,
-          inferenceTimeMs: result.inferenceTimeMs,
-        }),
-      );
     },
     [breedClassificationRequest],
   );
 
-  // reset tracking on orientation change
+  // A rotated frame uses a different coordinate system, invalidating every
+  // tracked box, pending crop request, and cached track-to-breed association.
   useEffect(() => {
     liveDetectionTracker.current = createLiveDetectionTrackerState();
     breedPredictionsByTrackId.current = {};
@@ -325,7 +310,7 @@ export default function CameraScreen() {
   const mobileDetector = useTensorflowModel(mobileDetectorAsset, []);
   const detectorModel = mobileDetector.model;
 
-  // breed classifier
+  // Use the same reliable CPU baseline for the classifier.
   const mobileBreedClassifier = useTensorflowModel(
     mobileBreedClassifierAsset,
     [],
@@ -333,7 +318,7 @@ export default function CameraScreen() {
 
   const breedClassifierModel = mobileBreedClassifier.model;
 
-  // resize input for model
+  // Produce the detector's planar RGB tensor directly from the native frame.
   const liveFrameResizer = useResizer({
     width: DETECTOR_INPUT_SIZE,
     height: DETECTOR_INPUT_SIZE,
@@ -345,13 +330,6 @@ export default function CameraScreen() {
   });
 
   const lastPreprocessTime = useMemo(() => createSynchronizable(0), []);
-  const hasLoggedDetectorInput = useMemo(() => createSynchronizable(false), []);
-  const hasLoggedDetectorOutput = useMemo(
-    () => createSynchronizable(false),
-    [],
-  );
-
-  const lastDetectionLogTime = useMemo(() => createSynchronizable(0), []);
 
   const frameResizer = liveFrameResizer.resizer;
 
@@ -388,28 +366,17 @@ export default function CameraScreen() {
         try {
           const detectorInput = resizedFrame.getPixelBuffer();
 
-          // Log the tensor contract once without continuously crossing from the
-          // Worklet thread into the React Native logging thread.
-          if (!hasLoggedDetectorInput.getBlocking()) {
-            hasLoggedDetectorInput.setBlocking(true);
-
-            console.log("Live detector input prepared:", {
-              width: resizedFrame.width,
-              height: resizedFrame.height,
-              channelOrder: resizedFrame.channelOrder,
-              dataType: resizedFrame.dataType,
-              pixelLayout: resizedFrame.pixelLayout,
-              byteLength: detectorInput.byteLength,
-              expectedByteLength: DETECTOR_INPUT_BYTE_LENGTH,
-            });
+          // Reject an unexpected native tensor before it reaches the model.
+          if (detectorInput.byteLength !== DETECTOR_INPUT_BYTE_LENGTH) {
+            throw new Error(
+              `Expected ${DETECTOR_INPUT_BYTE_LENGTH} detector input bytes, ` +
+                `received ${detectorInput.byteLength}.`,
+            );
           }
-
-          const inferenceStartedAt = performance.now();
 
           // runSync keeps detectorInput valid until native inference has consumed
           // it. This runs on the Worklet thread, not React's UI/JS thread.
           const detectorOutputs = detectorModel.runSync([detectorInput]);
-          const inferenceTimeMs = performance.now() - inferenceStartedAt;
 
           if (detectorOutputs.length !== 1) {
             throw new Error(
@@ -465,19 +432,11 @@ export default function CameraScreen() {
 
               lastBreedClassificationTime.setBlocking(currentTime);
 
-              let preprocessingTimeMs = 0;
-              let classifierInferenceTimeMs = 0;
-
               try {
-                const preprocessingStartedAt = performance.now();
-
                 const classifierInput = createBreedClassifierInput(
                   detectorInput,
                   selectedDetection.box,
                 );
-
-                preprocessingTimeMs =
-                  performance.now() - preprocessingStartedAt;
 
                 if (
                   classifierInput.byteLength !==
@@ -489,14 +448,9 @@ export default function CameraScreen() {
                   );
                 }
 
-                const classifierInferenceStartedAt = performance.now();
-
                 const classifierOutputs = breedClassifierModel.runSync([
                   classifierInput,
                 ]);
-
-                classifierInferenceTimeMs =
-                  performance.now() - classifierInferenceStartedAt;
 
                 if (classifierOutputs.length !== 1) {
                   throw new Error(
@@ -525,22 +479,16 @@ export default function CameraScreen() {
                 scheduleOnRN(handleLiveBreedClassificationResult, {
                   requestId: classificationRequest.requestId,
                   trackId: classificationRequest.trackId,
-                  detectorConfidence: selectedDetection.confidence,
                   prediction,
                   errorMessage: null,
-                  preprocessingTimeMs,
-                  inferenceTimeMs: classifierInferenceTimeMs,
                 });
               } catch (error) {
                 scheduleOnRN(handleLiveBreedClassificationResult, {
                   requestId: classificationRequest.requestId,
                   trackId: classificationRequest.trackId,
-                  detectorConfidence: selectedDetection.confidence,
                   prediction: null,
                   errorMessage:
                     error instanceof Error ? error.message : String(error),
-                  preprocessingTimeMs,
-                  inferenceTimeMs: classifierInferenceTimeMs,
                 });
               }
             }
@@ -558,43 +506,6 @@ export default function CameraScreen() {
           // Transfer only small decoded objects across the thread boundary. Camera pixels
           // and model buffers remain native and never enter React state.
           scheduleOnRN(handleLiveDetectionResult, frameDetectionResult);
-
-          // Log only the first successful inference so console traffic cannot
-          // affect subsequent timing or camera smoothness.
-          if (!hasLoggedDetectorOutput.getBlocking()) {
-            hasLoggedDetectorOutput.setBlocking(true);
-
-            console.log("Live detector inference passed:", {
-              inferenceTimeMs,
-              outputCount: detectorOutputs.length,
-              outputByteLength: detectorOutput.byteLength,
-              expectedOutputByteLength: DETECTOR_OUTPUT_BYTE_LENGTH,
-            });
-          }
-
-          const previousDetectionLogTime = lastDetectionLogTime.getBlocking();
-
-          if (
-            currentTime - previousDetectionLogTime >=
-            LIVE_DETECTION_LOG_INTERVAL_MS
-          ) {
-            lastDetectionLogTime.setBlocking(currentTime);
-
-            console.log(
-              "Live dog detections:",
-              JSON.stringify({
-                physicalFrame: {
-                  width: frame.width,
-                  height: frame.height,
-                  orientation: frame.orientation,
-                  isMirrored: frame.isMirrored,
-                },
-                orientedFrame: frameDetectionResult.frame,
-                count: frameDetectionResult.detections.length,
-                detections: frameDetectionResult.detections,
-              }),
-            );
-          }
         } finally {
           // The resized GPU allocation is separate from the original camera frame.
           resizedFrame.dispose();
@@ -615,25 +526,15 @@ export default function CameraScreen() {
     [photoOutput, frameOutput],
   );
 
-  // Log the tensor contract reported by the phone. It must match the exported
-  // detector before camera pixels are ever passed into the model.
+  // Successful loading is reflected in the UI; only failures need console output.
   useEffect(() => {
-    if (mobileDetector.state === "loaded") {
-      console.log("Mobile detector ready:", {
-        inputs: mobileDetector.model.inputs,
-        outputs: mobileDetector.model.outputs,
-      });
+    if (mobileDetector.state === "error") {
+      console.error("Mobile detector unavailable:", mobileDetector.error);
     }
   }, [mobileDetector]);
 
-  // Confirm the classifier bundled into the app has the verified tensor contract.
   useEffect(() => {
-    if (mobileBreedClassifier.state === "loaded") {
-      console.log("Mobile breed classifier ready:", {
-        inputs: mobileBreedClassifier.model.inputs,
-        outputs: mobileBreedClassifier.model.outputs,
-      });
-    } else if (mobileBreedClassifier.state === "error") {
+    if (mobileBreedClassifier.state === "error") {
       console.error(
         "Mobile breed classifier unavailable:",
         mobileBreedClassifier.error,
@@ -641,12 +542,8 @@ export default function CameraScreen() {
     }
   }, [mobileBreedClassifier]);
 
-  // Confirm that this phone supports VisionCamera's GPU resize pipeline before
-  // attempting to pass camera buffers through it.
   useEffect(() => {
-    if (liveFrameResizer.state === "ready") {
-      console.log("Live frame resizer ready.");
-    } else if (liveFrameResizer.state === "error") {
+    if (liveFrameResizer.state === "error") {
       console.error("Live frame resizer unavailable:", liveFrameResizer.error);
     }
   }, [liveFrameResizer]);

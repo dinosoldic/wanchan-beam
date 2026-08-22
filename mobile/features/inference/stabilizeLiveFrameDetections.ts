@@ -112,6 +112,8 @@ export function stabilizeLiveFrameDetections(
 
   let nextTrackId = previousState.nextTrackId;
 
+  // Greedily keep the ID of the unused previous box with the strongest overlap.
+  // This lightweight position tracker avoids running a second identity model.
   for (const detection of currentResult.detections) {
     let bestTrackIndex = -1;
     let bestIoU = MINIMUM_MATCH_IOU;
