@@ -71,6 +71,7 @@ export function mapFrameDetectionsToPreview(
     }
 
     mappedDetections.push({
+      trackId: detection.trackId,
       classId: detection.classId,
       label: detection.label,
       confidence: detection.confidence,

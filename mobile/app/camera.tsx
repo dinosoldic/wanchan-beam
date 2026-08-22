@@ -35,9 +35,10 @@ import {
   BREED_CLASSIFIER_OUTPUT_BYTE_LENGTH,
   createBreedClassifierInput,
   decodeMobileBreedClassifierOutput,
+  findBreedClassificationDetection,
   type LiveBreedPrediction,
-  type LiveDetectionBox,
   type LiveFrameDetectionResult,
+  type LiveBreedClassificationRequest,
 } from "@/features/inference";
 
 // The npm prestart/preandroid hooks copy shared versioned assets here so
@@ -46,12 +47,18 @@ import mobileBreedClassifierAsset from "../generated-assets/models/mobile-breed-
 import mobileDetectorAsset from "../generated-assets/models/mobile-detector.tflite";
 import breedLabels from "../generated-assets/models/labels.json";
 
-interface LiveBreedClassifierSmokeResult {
-  detectorBox: LiveDetectionBox;
+interface LiveBreedClassificationResult {
+  requestId: number;
+  trackId: number;
   detectorConfidence: number;
-  prediction: LiveBreedPrediction;
+  prediction: LiveBreedPrediction | null;
+  errorMessage: string | null;
   preprocessingTimeMs: number;
   inferenceTimeMs: number;
+}
+
+interface CachedLiveBreedPrediction extends LiveBreedPrediction {
+  label: string;
 }
 
 //// consts
@@ -64,6 +71,9 @@ const DETECTOR_INPUT_SIZE = 544;
 
 // Throttle inference without queueing frames.
 const LIVE_INFERENCE_INTERVAL_MS = 300;
+
+// Classify at most one unclassified track during this interval.
+const BREED_CLASSIFICATION_INTERVAL_MS = 400;
 
 // Limit debug output separately from inference.
 const LIVE_DETECTION_LOG_INTERVAL_MS = 2_000;
@@ -104,6 +114,32 @@ export default function CameraScreen() {
     height: 0,
   });
 
+  const breedPredictionsByTrackId = useRef<
+    Record<number, CachedLiveBreedPrediction>
+  >({});
+
+  const failedBreedTrackIds = useRef(new Set<number>());
+
+  const pendingBreedClassificationRequest =
+    useRef<LiveBreedClassificationRequest | null>(null);
+
+  const nextBreedClassificationRequestId = useRef(1);
+
+  const breedClassificationRequest = useMemo(
+    () => createSynchronizable<LiveBreedClassificationRequest | null>(null),
+    [],
+  );
+
+  const lastBreedClassificationTime = useMemo(
+    () => createSynchronizable(0),
+    [],
+  );
+
+  const lastProcessedBreedRequestId = useMemo(
+    () => createSynchronizable(0),
+    [],
+  );
+
   // Stabilization runs here after the Worklet transfers its small decoded result.
   const handleLiveDetectionResult = useCallback(
     (result: LiveFrameDetectionResult) => {
@@ -114,30 +150,150 @@ export default function CameraScreen() {
 
       liveDetectionTracker.current = trackerUpdate.state;
       setLiveDetectionResult(trackerUpdate.result);
+
+      const trackedDetections = trackerUpdate.result.detections;
+      const activeTrackIds = new Set<number>();
+
+      for (const detection of trackedDetections) {
+        if (detection.trackId !== undefined) {
+          activeTrackIds.add(detection.trackId);
+        }
+      }
+
+      // Remove cached results after their tracks have actually expired.
+      for (const cachedTrackId of Object.keys(
+        breedPredictionsByTrackId.current,
+      )) {
+        const trackId = Number(cachedTrackId);
+
+        if (!activeTrackIds.has(trackId)) {
+          delete breedPredictionsByTrackId.current[trackId];
+        }
+      }
+
+      for (const failedTrackId of failedBreedTrackIds.current) {
+        if (!activeTrackIds.has(failedTrackId)) {
+          failedBreedTrackIds.current.delete(failedTrackId);
+        }
+      }
+
+      const pendingRequest = pendingBreedClassificationRequest.current;
+
+      if (pendingRequest !== null) {
+        const currentPendingDetection = trackedDetections.find(
+          (detection) => detection.trackId === pendingRequest.trackId,
+        );
+
+        if (currentPendingDetection === undefined) {
+          pendingBreedClassificationRequest.current = null;
+          breedClassificationRequest.setBlocking(null);
+        } else {
+          // Keep the pending request aligned with the track's latest box.
+          const updatedRequest: LiveBreedClassificationRequest = {
+            ...pendingRequest,
+            detectorBox: currentPendingDetection.detectorBox,
+          };
+
+          pendingBreedClassificationRequest.current = updatedRequest;
+          breedClassificationRequest.setBlocking(updatedRequest);
+        }
+      }
+
+      if (pendingBreedClassificationRequest.current !== null) {
+        return;
+      }
+
+      const nextDetection = trackedDetections.find((detection) => {
+        const trackId = detection.trackId;
+
+        return (
+          trackId !== undefined &&
+          breedPredictionsByTrackId.current[trackId] === undefined &&
+          !failedBreedTrackIds.current.has(trackId)
+        );
+      });
+
+      if (nextDetection?.trackId === undefined) {
+        return;
+      }
+
+      const request: LiveBreedClassificationRequest = {
+        requestId: nextBreedClassificationRequestId.current,
+        trackId: nextDetection.trackId,
+        detectorBox: nextDetection.detectorBox,
+      };
+
+      nextBreedClassificationRequestId.current += 1;
+      pendingBreedClassificationRequest.current = request;
+      breedClassificationRequest.setBlocking(request);
     },
-    [],
+    [breedClassificationRequest],
   );
 
-  const handleLiveBreedClassifierSmokeResult = useCallback(
-    (result: LiveBreedClassifierSmokeResult) => {
-      const breedLabel =
-        breedLabels[result.prediction.classId] ?? "Unknown breed";
+  const handleLiveBreedClassificationResult = useCallback(
+    (result: LiveBreedClassificationResult) => {
+      const pendingRequest = pendingBreedClassificationRequest.current;
+
+      // Ignore a stale result produced before an orientation or route reset.
+      if (
+        pendingRequest === null ||
+        pendingRequest.requestId !== result.requestId ||
+        pendingRequest.trackId !== result.trackId
+      ) {
+        return;
+      }
+
+      pendingBreedClassificationRequest.current = null;
+      breedClassificationRequest.setBlocking(null);
+
+      if (result.prediction === null) {
+        failedBreedTrackIds.current.add(result.trackId);
+
+        console.error(
+          "Live breed classification failed:",
+          result.errorMessage ?? "Unknown classifier error.",
+        );
+
+        return;
+      }
+
+      const label = breedLabels[result.prediction.classId] ?? "Unknown breed";
+
+      breedPredictionsByTrackId.current[result.trackId] = {
+        ...result.prediction,
+        label,
+      };
 
       console.log(
-        "Live breed classifier smoke test:",
+        "Live breed classification cached:",
         JSON.stringify({
-          ...result,
-          breedLabel,
+          trackId: result.trackId,
+          detectorConfidence: result.detectorConfidence,
+          breedLabel: label,
+          breedConfidence: result.prediction.confidence,
+          preprocessingTimeMs: result.preprocessingTimeMs,
+          inferenceTimeMs: result.inferenceTimeMs,
         }),
       );
     },
-    [],
+    [breedClassificationRequest],
   );
 
   // reset tracking on orientation change
   useEffect(() => {
     liveDetectionTracker.current = createLiveDetectionTrackerState();
-  }, [deviceOrientation, interfaceOrientation]);
+    breedPredictionsByTrackId.current = {};
+    failedBreedTrackIds.current.clear();
+    pendingBreedClassificationRequest.current = null;
+
+    breedClassificationRequest.setBlocking(null);
+    lastBreedClassificationTime.setBlocking(0);
+  }, [
+    breedClassificationRequest,
+    deviceOrientation,
+    interfaceOrientation,
+    lastBreedClassificationTime,
+  ]);
 
   // React Native reports the final preview size after percentage-based layout
   // has been resolved into physical screen coordinates.
@@ -191,10 +347,6 @@ export default function CameraScreen() {
   const lastPreprocessTime = useMemo(() => createSynchronizable(0), []);
   const hasLoggedDetectorInput = useMemo(() => createSynchronizable(false), []);
   const hasLoggedDetectorOutput = useMemo(
-    () => createSynchronizable(false),
-    [],
-  );
-  const hasRunBreedClassifierSmokeTest = useMemo(
     () => createSynchronizable(false),
     [],
   );
@@ -283,77 +435,114 @@ export default function CameraScreen() {
             decodeMobileDetectorOutput(detectorOutput),
           );
 
+          const classificationRequest =
+            breedClassificationRequest.getBlocking();
+
+          const previousBreedClassificationTime =
+            lastBreedClassificationTime.getBlocking();
+
+          const previousProcessedRequestId =
+            lastProcessedBreedRequestId.getBlocking();
+
           if (
             breedClassifierModel != null &&
-            detectorSpaceDetections.length > 0 &&
-            !hasRunBreedClassifierSmokeTest.getBlocking()
+            classificationRequest !== null &&
+            classificationRequest.requestId > previousProcessedRequestId &&
+            currentTime - previousBreedClassificationTime >=
+              BREED_CLASSIFICATION_INTERVAL_MS
           ) {
-            hasRunBreedClassifierSmokeTest.setBlocking(true);
+            const selectedDetection = findBreedClassificationDetection(
+              detectorSpaceDetections,
+              classificationRequest,
+            );
 
-            try {
-              const selectedDetection = detectorSpaceDetections[0]!;
-
-              const preprocessingStartedAt = performance.now();
-
-              const classifierInput = createBreedClassifierInput(
-                detectorInput,
-                selectedDetection.box,
+            // If the requested dog moved too far, keep the request pending. React will
+            // update its detectorBox when the latest tracked detections arrive.
+            if (selectedDetection !== null) {
+              lastProcessedBreedRequestId.setBlocking(
+                classificationRequest.requestId,
               );
 
-              const preprocessingTimeMs =
-                performance.now() - preprocessingStartedAt;
+              lastBreedClassificationTime.setBlocking(currentTime);
 
-              if (
-                classifierInput.byteLength !==
-                BREED_CLASSIFIER_INPUT_BYTE_LENGTH
-              ) {
-                throw new Error(
-                  `Expected ${BREED_CLASSIFIER_INPUT_BYTE_LENGTH} classifier ` +
-                    `input bytes, received ${classifierInput.byteLength}.`,
+              let preprocessingTimeMs = 0;
+              let classifierInferenceTimeMs = 0;
+
+              try {
+                const preprocessingStartedAt = performance.now();
+
+                const classifierInput = createBreedClassifierInput(
+                  detectorInput,
+                  selectedDetection.box,
                 );
+
+                preprocessingTimeMs =
+                  performance.now() - preprocessingStartedAt;
+
+                if (
+                  classifierInput.byteLength !==
+                  BREED_CLASSIFIER_INPUT_BYTE_LENGTH
+                ) {
+                  throw new Error(
+                    `Expected ${BREED_CLASSIFIER_INPUT_BYTE_LENGTH} classifier ` +
+                      `input bytes, received ${classifierInput.byteLength}.`,
+                  );
+                }
+
+                const classifierInferenceStartedAt = performance.now();
+
+                const classifierOutputs = breedClassifierModel.runSync([
+                  classifierInput,
+                ]);
+
+                classifierInferenceTimeMs =
+                  performance.now() - classifierInferenceStartedAt;
+
+                if (classifierOutputs.length !== 1) {
+                  throw new Error(
+                    `Expected one classifier output, received ` +
+                      `${classifierOutputs.length}.`,
+                  );
+                }
+
+                const classifierOutput = classifierOutputs[0];
+
+                if (
+                  classifierOutput == null ||
+                  classifierOutput.byteLength !==
+                    BREED_CLASSIFIER_OUTPUT_BYTE_LENGTH
+                ) {
+                  throw new Error(
+                    `Expected ${BREED_CLASSIFIER_OUTPUT_BYTE_LENGTH} classifier ` +
+                      `output bytes, received ` +
+                      `${classifierOutput?.byteLength ?? 0}.`,
+                  );
+                }
+
+                const prediction =
+                  decodeMobileBreedClassifierOutput(classifierOutput);
+
+                scheduleOnRN(handleLiveBreedClassificationResult, {
+                  requestId: classificationRequest.requestId,
+                  trackId: classificationRequest.trackId,
+                  detectorConfidence: selectedDetection.confidence,
+                  prediction,
+                  errorMessage: null,
+                  preprocessingTimeMs,
+                  inferenceTimeMs: classifierInferenceTimeMs,
+                });
+              } catch (error) {
+                scheduleOnRN(handleLiveBreedClassificationResult, {
+                  requestId: classificationRequest.requestId,
+                  trackId: classificationRequest.trackId,
+                  detectorConfidence: selectedDetection.confidence,
+                  prediction: null,
+                  errorMessage:
+                    error instanceof Error ? error.message : String(error),
+                  preprocessingTimeMs,
+                  inferenceTimeMs: classifierInferenceTimeMs,
+                });
               }
-
-              const classifierInferenceStartedAt = performance.now();
-
-              const classifierOutputs = breedClassifierModel.runSync([
-                classifierInput,
-              ]);
-
-              const inferenceTimeMs =
-                performance.now() - classifierInferenceStartedAt;
-
-              if (classifierOutputs.length !== 1) {
-                throw new Error(
-                  `Expected one classifier output, received ` +
-                    `${classifierOutputs.length}.`,
-                );
-              }
-
-              const classifierOutput = classifierOutputs[0];
-
-              if (
-                classifierOutput == null ||
-                classifierOutput.byteLength !==
-                  BREED_CLASSIFIER_OUTPUT_BYTE_LENGTH
-              ) {
-                throw new Error(
-                  `Expected ${BREED_CLASSIFIER_OUTPUT_BYTE_LENGTH} classifier ` +
-                    `output bytes, received ${classifierOutput?.byteLength ?? 0}.`,
-                );
-              }
-
-              const prediction =
-                decodeMobileBreedClassifierOutput(classifierOutput);
-
-              scheduleOnRN(handleLiveBreedClassifierSmokeResult, {
-                detectorBox: selectedDetection.box,
-                detectorConfidence: selectedDetection.confidence,
-                prediction,
-                preprocessingTimeMs,
-                inferenceTimeMs,
-              });
-            } catch (error) {
-              console.error("Live breed classifier smoke test failed:", error);
             }
           }
 
@@ -472,8 +661,14 @@ export default function CameraScreen() {
         setIsCameraReady(false);
         setLiveDetectionResult(null);
         liveDetectionTracker.current = createLiveDetectionTrackerState();
+        breedPredictionsByTrackId.current = {};
+        failedBreedTrackIds.current.clear();
+        pendingBreedClassificationRequest.current = null;
+
+        breedClassificationRequest.setBlocking(null);
+        lastBreedClassificationTime.setBlocking(0);
       };
-    }, []),
+    }, [breedClassificationRequest, lastBreedClassificationTime]),
   );
 
   async function handleCameraPermission() {
@@ -564,11 +759,19 @@ export default function CameraScreen() {
       interfaceOrientation,
     );
 
-    return mapFrameDetectionsToPreview(
+    const previewDetections = mapFrameDetectionsToPreview(
       interfaceDetectionResult,
       cameraPreviewSize.width,
       cameraPreviewSize.height,
     ).detections;
+
+    return previewDetections.map((detection) => ({
+      ...detection,
+      breedPrediction:
+        detection.trackId === undefined
+          ? null
+          : (breedPredictionsByTrackId.current[detection.trackId] ?? null),
+    }));
   }, [
     cameraPreviewSize,
     deviceOrientation,
