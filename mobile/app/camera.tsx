@@ -14,29 +14,74 @@ import {
   Camera,
   useCameraPermission,
   usePhotoOutput,
+  useFrameOutput,
 } from "react-native-vision-camera";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { setCapturedPhoto } from "@/features/camera/capturedPhotoStore";
+
+// The npm prestart/preandroid hooks copy the shared versioned model here so
+// Metro can bundle it without crossing the Windows W:/C: drive boundary.
 import mobileDetectorAsset from "../generated-assets/models/mobile-detector.tflite";
+
+const LIVE_FRAME_RESOLUTION = {
+  width: 640,
+  height: 480,
+};
 
 export default function CameraScreen() {
   const router = useRouter();
   const { hasPermission, canRequestPermission, requestPermission } =
     useCameraPermission();
 
+  // Photo capture keeps its own high-quality JPEG output. It remains separate
+  // from the smaller live-frame output used by on-device detection.
   const photoOutput = usePhotoOutput({
     containerFormat: "jpeg",
     quality: 0.9,
     qualityPrioritization: "quality",
   });
-  const cameraOutputs = useMemo(() => [photoOutput], [photoOutput]);
+
+  // This output receives preview frames without involving the React JS thread.
+  // Resizing, throttling, and inference will be added after this smoke test.
+  const frameOutput = useFrameOutput({
+    // A small YUV frame keeps camera bandwidth low. The GPU resizer will convert
+    // selected frames into the detector's square RGB input later.
+    targetResolution: LIVE_FRAME_RESOLUTION,
+    pixelFormat: "yuv",
+
+    // Never queue stale frames behind slow work. Once inference is connected,
+    // the camera will prefer a newer frame over completing an old backlog.
+    dropFramesWhileBusy: true,
+    onFrame(frame) {
+      "worklet";
+
+      // Every Frame owns a native GPU buffer. It must be released on every code
+      // path or the finite camera buffer pool fills and the preview stalls.
+      frame.dispose();
+    },
+  });
+
+  // VisionCamera can drive the full-resolution photo path and lightweight live
+  // frame path from the same native camera session.
+  const cameraOutputs = useMemo(
+    () => [photoOutput, frameOutput],
+    [photoOutput, frameOutput],
+  );
+
+  // An empty delegate list deliberately starts with the CPU backend. This gives
+  // us a reliable baseline before testing Android GPU or NNAPI acceleration.
   const mobileDetector = useTensorflowModel(mobileDetectorAsset, []);
 
+  // Active controls whether the route owns a running camera session. Ready is
+  // set by native lifecycle callbacks and prevents capture during a restart.
+  // Scanning prevents two rapid presses from starting overlapping captures.
   const [isCameraActive, setIsCameraActive] = useState(false);
   const [isCameraReady, setIsCameraReady] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
 
+  // Log the tensor contract reported by the phone. It must match the exported
+  // detector before camera pixels are ever passed into the model.
   useEffect(() => {
     if (mobileDetector.state === "loaded") {
       console.log("Mobile detector ready:", {
@@ -76,6 +121,8 @@ export default function CameraScreen() {
     setIsScanning(true);
 
     try {
+      // capturePhoto returns a native object whose memory remains owned by the
+      // app until photo.dispose() runs in the nested finally block below.
       const photo = await photoOutput.capturePhoto(
         {
           flashMode: "off",
@@ -92,6 +139,8 @@ export default function CameraScreen() {
         const temporaryPhotoUri = `file://${temporaryPhotoPath}`;
         const storedPhotoUri = `${FileSystem.documentDirectory}wanchan-capture-${Date.now()}.jpg`;
 
+        // VisionCamera's temporary file may be reclaimed. Copy it into app
+        // document storage before navigating to the static scan route.
         await FileSystem.copyAsync({
           from: temporaryPhotoUri,
           to: storedPhotoUri,
@@ -109,6 +158,8 @@ export default function CameraScreen() {
           height: photo.height,
         });
 
+        // The scan route reads this stored URI and sends the still image through
+        // the existing server-side detector/classifier pipeline.
         router.push("/staticScan");
       } finally {
         // VisionCamera photos retain native memory until explicitly released.
@@ -167,6 +218,8 @@ export default function CameraScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.cameraView}>
+        {/* Both outputs share this preview; adding live detection must not alter
+            the existing photo capture flow. */}
         <Camera
           style={styles.camera}
           device="back"
@@ -190,6 +243,8 @@ export default function CameraScreen() {
         <View style={[styles.corner, styles.bottomLeft]} />
         <View style={[styles.corner, styles.bottomRight]} />
 
+        {/* For now this reports model loading only. It will represent active
+            live inference once frames are connected to the detector. */}
         <View style={styles.liveDetectorStatus}>
           <View
             style={[
