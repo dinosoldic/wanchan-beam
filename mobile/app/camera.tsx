@@ -22,7 +22,7 @@ import {
 } from "react-native-vision-camera";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { setCapturedPhoto } from "@/features/camera";
+import { LiveBreedOverlay, setCapturedPhoto } from "@/features/camera";
 import {
   decodeMobileDetectorOutput,
   mapDetectorDetectionsToFrame,
@@ -846,31 +846,16 @@ export default function CameraScreen() {
             console.error("Camera session failed:", error);
           }}
         />
-
-        {/* This non-interactive layer verifies that detector coordinates align
-            with the cropped VisionCamera preview. Controls remain touchable. */}
-        <View pointerEvents="none" style={styles.liveDetectionOverlay}>
-          {livePreviewDetections.map((detection, index) => (
-            <View
-              key={`live-dog-${detection.trackId ?? index}`}
-              style={[
-                styles.liveDetectionBox,
-                {
-                  left: detection.box.x1,
-                  top: detection.box.y1,
-                  width: detection.box.x2 - detection.box.x1,
-                  height: detection.box.y2 - detection.box.y1,
-                },
-              ]}
-            />
-          ))}
-        </View>
-
+        {/* label overlay */}
+        <LiveBreedOverlay
+          detections={livePreviewDetections}
+          previewWidth={cameraPreviewSize.width}
+          previewHeight={cameraPreviewSize.height}
+        />
         <View style={[styles.corner, styles.topLeft]} />
         <View style={[styles.corner, styles.topRight]} />
         <View style={[styles.corner, styles.bottomLeft]} />
         <View style={[styles.corner, styles.bottomRight]} />
-
         {/* Report both native model readiness and the latest live dog count. */}
         <View style={styles.liveDetectorStatus}>
           <View
@@ -890,7 +875,6 @@ export default function CameraScreen() {
                 : "Loading live detector..."}
           </Text>
         </View>
-
         <View style={styles.scanControls}>
           <Pressable
             accessibilityRole="button"
@@ -932,16 +916,6 @@ const styles = StyleSheet.create({
   },
   camera: {
     flex: 1,
-  },
-  liveDetectionOverlay: {
-    ...StyleSheet.absoluteFill,
-  },
-  liveDetectionBox: {
-    position: "absolute",
-    borderWidth: 2,
-    borderColor: "#F3A58F",
-    borderRadius: 8,
-    backgroundColor: "rgba(243, 165, 143, 0.08)",
   },
   placeholderImage: {
     position: "absolute",
