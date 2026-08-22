@@ -1,0 +1,91 @@
+{
+  "schemaVersion": 1,
+  "packageVersion": "1.0.0",
+  "detector": {
+    "name": "YOLO26s",
+    "task": "object-detection",
+    "format": "onnx",
+    "artifact": "detector.onnx",
+    "sha256": "9d0192aadce44f2883123623b25da08cbd2089f13bfffd374a28614e57dd0e80",
+    "exporter": {
+      "name": "ultralytics",
+      "version": "8.4.120"
+    },
+    "preprocessing": "preprocessing.json",
+    "output": {
+      "name": "output0",
+      "shape": [1, 300, 6],
+      "fields": ["x1", "y1", "x2", "y2", "confidence", "classId"],
+      "boxFormat": "xyxy",
+      "coordinateSpace": "inputPixels",
+      "maximumDetections": 300,
+      "requiresNms": false
+    },
+    "selection": {
+      "classFilter": [
+        {
+          "id": 16,
+          "name": "dog"
+        }
+      ],
+      "confidenceThreshold": 0.15
+    }
+  },
+  "classifier": {
+    "name": "MobileNetV3-Large",
+    "task": "dog-breed-classification",
+    "format": "onnx",
+    "artifact": "breed-classifier.onnx",
+    "sha256": "19ebb64db56d0c8d8e075404ed672cc7c33bc7a21b8f95a976f04494a1bb25cf",
+    "fileSizeBytes": 17775723,
+    "sourceCheckpoint": {
+      "name": "breed-classifier.pt",
+      "sha256": "534bf22ccd19dd45bf8f046d2c6922fcdf901b5aff1d0dd27a4d3bf18a390630"
+    },
+    "architecture": {
+      "classifierHiddenFeatures": 1280,
+      "dropoutProbability": 0.4
+    },
+    "exporter": {
+      "name": "torch.onnx",
+      "version": "2.13.0+cpu",
+      "opset": 20,
+      "dynamo": true
+    },
+    "preprocessing": "preprocessing.json",
+    "labels": {
+      "artifact": "labels.json",
+      "format": "ordered-array",
+      "idMapping": "arrayIndex",
+      "count": 130,
+      "orderingSha256": "45900cb538614ded4bed7c5197abb233570c7541635a3b59c1d3fba13c040ac3"
+    },
+    "input": {
+      "name": "images",
+      "shape": ["batch", 3, 256, 256],
+      "dynamicBatch": true,
+      "dataType": "float32"
+    },
+    "output": {
+      "name": "logits",
+      "shape": ["batch", 130],
+      "dynamicBatch": true,
+      "dataType": "float32"
+    },
+    "selection": {
+      "checkpointEpoch": 4,
+      "validationLoss": 0.4872046981408046,
+      "storedTop1Accuracy": 0.8507692307692307
+    },
+    "verification": {
+      "validationExamples": 5200,
+      "maximumAbsoluteLogitDifference": 0.0000394583,
+      "meanAbsoluteLogitDifference": 0.0000025472,
+      "matchingTop1Ids": 5200,
+      "matchingOrderedTop2Ids": 5200,
+      "pytorchVersion": "2.13.0+cpu",
+      "onnxRuntimeVersion": "1.28.0",
+      "executionProvider": "CPUExecutionProvider"
+    }
+  }
+}

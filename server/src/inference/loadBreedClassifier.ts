@@ -8,11 +8,11 @@ const EXPECTED_INPUT_SHAPE = ["batch", 3, 256, 256] as const;
 const EXPECTED_OUTPUT_SHAPE = ["batch", 130] as const;
 
 const defaultModelPath = fileURLToPath(
-  new URL("../../../models/v1/breed-classifier.onnx", import.meta.url),
+  new URL("../../models/v1/breed-classifier.onnx", import.meta.url),
 );
 
 const defaultLabelsPath = fileURLToPath(
-  new URL("../../../models/v1/labels.json", import.meta.url),
+  new URL("../../models/v1/labels.json", import.meta.url),
 );
 
 const modelPath = process.env.BREED_CLASSIFIER_MODEL_PATH ?? defaultModelPath;

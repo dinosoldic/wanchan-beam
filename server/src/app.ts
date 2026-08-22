@@ -10,11 +10,8 @@ export interface BuildAppOptions {
 }
 
 const sharedSchemaUrls = [
-  new URL(
-    "../../shared/schemas/dog-detection-response.schema.json",
-    import.meta.url,
-  ),
-  new URL("../../shared/schemas/error-response.schema.json", import.meta.url),
+  new URL("../schemas/dog-detection-response.schema.json", import.meta.url),
+  new URL("../schemas/error-response.schema.json", import.meta.url),
 ];
 
 async function loadSharedSchemas(): Promise<Record<string, unknown>[]> {

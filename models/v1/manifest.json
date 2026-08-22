@@ -5,7 +5,7 @@
     "name": "YOLO26s",
     "task": "object-detection",
     "format": "onnx",
-    "artifact": "detector.onnx",
+    "artifact": "../../server/models/v1/detector.onnx",
     "sha256": "9d0192aadce44f2883123623b25da08cbd2089f13bfffd374a28614e57dd0e80",
     "exporter": {
       "name": "ultralytics",
@@ -90,7 +90,7 @@
     "name": "MobileNetV3-Large",
     "task": "dog-breed-classification",
     "format": "onnx",
-    "artifact": "breed-classifier.onnx",
+    "artifact": "../../server/models/v1/breed-classifier.onnx",
     "sha256": "19ebb64db56d0c8d8e075404ed672cc7c33bc7a21b8f95a976f04494a1bb25cf",
     "fileSizeBytes": 17775723,
     "sourceCheckpoint": {
