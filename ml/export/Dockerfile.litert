@@ -1,0 +1,22 @@
+FROM python:3.13-slim-bookworm
+
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends \
+    libgl1 \
+    libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN python -m pip install --no-cache-dir \
+    --index-url https://download.pytorch.org/whl/cpu \
+    torch==2.12.1 \
+    torchvision==0.27.1
+
+RUN python -m pip install --no-cache-dir \
+    "ultralytics[export-litert]==8.4.120"
+
+ENV YOLO_CONFIG_DIR=/tmp \
+    PYTHONDONTWRITEBYTECODE=1
+
+WORKDIR /workspace/ml
+
+CMD ["python", "-m", "export.export_mobile_detector"]
