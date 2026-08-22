@@ -21,6 +21,28 @@
       "outputRange": [0, 1]
     }
   },
+  "mobileDetector": {
+    "inputIndex": 0,
+    "inputSize": {
+      "width": 544,
+      "height": 544
+    },
+    "layout": "NCHW",
+    "dataType": "float32",
+    "colorSpace": "RGB",
+    "resize": {
+      "mode": "letterbox",
+      "preserveAspectRatio": true,
+      "center": true,
+      "paddingValue": [114, 114, 114],
+      "stride": 32
+    },
+    "normalization": {
+      "operation": "divide",
+      "value": 255,
+      "outputRange": [0, 1]
+    }
+  },
   "classifier": {
     "inputName": "images",
     "inputSize": {

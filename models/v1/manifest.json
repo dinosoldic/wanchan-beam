@@ -31,6 +31,61 @@
       "confidenceThreshold": 0.15
     }
   },
+  "mobileDetector": {
+    "name": "YOLO26n",
+    "task": "object-detection",
+    "format": "litert",
+    "artifact": "mobile-detector.tflite",
+    "sha256": "994179eebcf3b796445f406cfb66d6b517fa3d62f8a35969876286ba29b8277f",
+    "fileSizeBytes": 10246662,
+    "sourceCheckpoint": {
+      "name": "yolo26n.pt",
+      "sha256": "9b09cc8bf347f0fc8a5f7657480587f25db09b34bf33b0652110fb03a8ad4fef"
+    },
+    "exporter": {
+      "name": "ultralytics",
+      "version": "8.4.120",
+      "backend": "litert-torch",
+      "backendVersion": "0.9.3",
+      "pytorchVersion": "2.12.1+cpu",
+      "quantization": "fp32"
+    },
+    "preprocessing": "preprocessing.json",
+    "input": {
+      "index": 0,
+      "shape": [1, 3, 544, 544],
+      "layout": "NCHW",
+      "dataType": "float32",
+      "dynamicBatch": false
+    },
+    "output": {
+      "index": 0,
+      "shape": [1, 300, 6],
+      "fields": ["x1", "y1", "x2", "y2", "confidence", "classId"],
+      "boxFormat": "xyxy",
+      "coordinateSpace": "inputPixels",
+      "maximumDetections": 300,
+      "endToEnd": true,
+      "requiresNms": false,
+      "dataType": "float32"
+    },
+    "selection": {
+      "classFilter": [
+        {
+          "id": 16,
+          "name": "dog"
+        }
+      ],
+      "confidenceThreshold": 0.15
+    },
+    "verification": {
+      "sample": "ml/data/samples/test-dogs.png",
+      "matchingDetections": 6,
+      "maximumConfidenceDifference": 0.03248745,
+      "maximumCoordinateDifferencePixels": 1.05777,
+      "minimumBoxIou": 0.9936216
+    }
+  },
   "classifier": {
     "name": "MobileNetV3-Large",
     "task": "dog-breed-classification",
