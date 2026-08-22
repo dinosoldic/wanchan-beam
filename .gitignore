@@ -5,6 +5,7 @@ node_modules/
 .expo/
 dist/
 web-build/
+mobile/generated-assets/
 expo-env.d.ts
 *.tsbuildinfo
 

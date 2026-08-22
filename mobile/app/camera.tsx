@@ -1,6 +1,7 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import * as FileSystem from "expo-file-system/legacy";
 import { useFocusEffect, useRouter } from "expo-router";
+import { useTensorflowModel } from "react-native-fast-tflite";
 import {
   Image,
   Linking,
@@ -17,6 +18,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { setCapturedPhoto } from "@/features/camera/capturedPhotoStore";
+import mobileDetectorAsset from "../generated-assets/models/mobile-detector.tflite";
 
 export default function CameraScreen() {
   const router = useRouter();
@@ -29,10 +31,20 @@ export default function CameraScreen() {
     qualityPrioritization: "quality",
   });
   const cameraOutputs = useMemo(() => [photoOutput], [photoOutput]);
+  const mobileDetector = useTensorflowModel(mobileDetectorAsset, []);
 
   const [isCameraActive, setIsCameraActive] = useState(false);
   const [isCameraReady, setIsCameraReady] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
+
+  useEffect(() => {
+    if (mobileDetector.state === "loaded") {
+      console.log("Mobile detector ready:", {
+        inputs: mobileDetector.model.inputs,
+        outputs: mobileDetector.model.outputs,
+      });
+    }
+  }, [mobileDetector]);
 
   // Stop the native camera session while another route is in front of this one.
   useFocusEffect(
@@ -177,6 +189,25 @@ export default function CameraScreen() {
         <View style={[styles.corner, styles.topRight]} />
         <View style={[styles.corner, styles.bottomLeft]} />
         <View style={[styles.corner, styles.bottomRight]} />
+
+        <View style={styles.liveDetectorStatus}>
+          <View
+            style={[
+              styles.liveDetectorStatusDot,
+              mobileDetector.state === "loaded" &&
+                styles.liveDetectorStatusDotReady,
+              mobileDetector.state === "error" &&
+                styles.liveDetectorStatusDotError,
+            ]}
+          />
+          <Text style={styles.liveDetectorStatusText}>
+            {mobileDetector.state === "loaded"
+              ? "Live detector ready"
+              : mobileDetector.state === "error"
+                ? "Live detector unavailable"
+                : "Loading live detector..."}
+          </Text>
+        </View>
 
         <View style={styles.scanControls}>
           <Pressable
@@ -344,6 +375,35 @@ const styles = StyleSheet.create({
     left: 0,
     alignItems: "center",
     gap: 10,
+  },
+  liveDetectorStatus: {
+    position: "absolute",
+    top: 16,
+    left: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    borderRadius: 999,
+    backgroundColor: "rgba(6, 38, 83, 0.78)",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  liveDetectorStatusDot: {
+    width: 9,
+    height: 9,
+    borderRadius: 999,
+    backgroundColor: "#F3C56B",
+  },
+  liveDetectorStatusDotReady: {
+    backgroundColor: "#7BC89C",
+  },
+  liveDetectorStatusDotError: {
+    backgroundColor: "#F3A58F",
+  },
+  liveDetectorStatusText: {
+    color: "#FFF8EE",
+    fontSize: 13,
+    fontWeight: "700",
   },
   scanButton: {
     minWidth: 120,
