@@ -1,0 +1,561 @@
+"""Evaluate a saved dog-breed classifier checkpoint."""
+
+import argparse
+from collections.abc import Iterable, Mapping
+from dataclasses import dataclass
+from pathlib import Path
+
+import torch
+from torch import Tensor, nn
+from torch.utils.data import DataLoader
+
+from datasets.tsinghua_dogs import (
+    MODEL_INPUT_SIZE as DEFAULT_MODEL_INPUT_SIZE,
+    TRAIN_SPLIT_PATH,
+    build_breed_mapping,
+    load_split_paths,
+    TsinghuaDogsDataset,
+    VALIDATION_SPLIT_PATH,
+)
+from training.breed_classifier import build_breed_classifier
+
+EVALUATION_BATCH_SIZE = 64
+NUM_WORKERS = 4
+CONFIDENCE_THRESHOLDS = (0.30, 0.35, 0.40, 0.45, 0.50)
+
+
+@dataclass(frozen=True)
+class EvaluationResult:
+    """Metrics and predictions collected over the complete validation set."""
+
+    loss: float
+    top_one_accuracy: float
+    top_two_accuracy: float
+    true_breed_ids: tuple[int, ...]
+    predicted_breed_ids: tuple[int, ...]
+    top_one_confidences: tuple[float, ...]
+
+
+@dataclass(frozen=True)
+class BreedAccuracy:
+    """Top-1 validation accuracy for one breed."""
+
+    breed_id: int
+    breed_name: str
+    correct_predictions: int
+    total_examples: int
+
+    @property
+    def accuracy(self) -> float:
+        return self.correct_predictions / self.total_examples
+
+
+@dataclass(frozen=True)
+class BreedConfusion:
+    """One incorrect true-breed and predicted-breed combination."""
+
+    true_breed_name: str
+    predicted_breed_name: str
+    incorrect_predictions: int
+    true_breed_examples: int
+
+    @property
+    def error_rate(self) -> float:
+        return self.incorrect_predictions / self.true_breed_examples
+
+
+@dataclass(frozen=True)
+class ConfidenceThresholdResult:
+    """User-visible accuracy and coverage for one confidence threshold."""
+
+    threshold: float
+    total_predictions: int
+    displayed_predictions: int
+    correct_labels_displayed: int
+    correct_labels_hidden: int
+    wrong_labels_displayed: int
+
+    @property
+    def coverage(self) -> float:
+        return self.displayed_predictions / self.total_predictions
+
+    @property
+    def displayed_accuracy(self) -> float:
+        if self.displayed_predictions == 0:
+            return 0.0
+
+        return self.correct_labels_displayed / self.displayed_predictions
+
+
+def calculate_confidence_threshold_results(
+    evaluation_result: EvaluationResult,
+    thresholds: Iterable[float],
+) -> tuple[ConfidenceThresholdResult, ...]:
+    """Measure the visible-result tradeoff for each confidence threshold."""
+
+    total_predictions = len(evaluation_result.true_breed_ids)
+
+    if total_predictions == 0:
+        raise ValueError("Confidence analysis did not receive any predictions")
+
+    if (
+        len(evaluation_result.predicted_breed_ids) != total_predictions
+        or len(evaluation_result.top_one_confidences) != total_predictions
+    ):
+        raise ValueError("Confidence analysis inputs do not have matching lengths")
+
+    for confidence in evaluation_result.top_one_confidences:
+        if not 0.0 <= confidence <= 1.0:
+            raise ValueError(f"Invalid top-one confidence: {confidence}")
+
+    results: list[ConfidenceThresholdResult] = []
+
+    for threshold in thresholds:
+        if not 0.0 <= threshold <= 1.0:
+            raise ValueError(f"Invalid confidence threshold: {threshold}")
+
+        correct_labels_displayed = 0
+        correct_labels_hidden = 0
+        wrong_labels_displayed = 0
+
+        for true_breed_id, predicted_breed_id, confidence in zip(
+            evaluation_result.true_breed_ids,
+            evaluation_result.predicted_breed_ids,
+            evaluation_result.top_one_confidences,
+            strict=True,
+        ):
+            is_correct = predicted_breed_id == true_breed_id
+            is_displayed = confidence >= threshold
+
+            if is_displayed and is_correct:
+                correct_labels_displayed += 1
+            elif is_displayed:
+                wrong_labels_displayed += 1
+            elif is_correct:
+                correct_labels_hidden += 1
+
+        displayed_predictions = (
+            correct_labels_displayed + wrong_labels_displayed
+        )
+
+        results.append(
+            ConfidenceThresholdResult(
+                threshold=threshold,
+                total_predictions=total_predictions,
+                displayed_predictions=displayed_predictions,
+                correct_labels_displayed=correct_labels_displayed,
+                correct_labels_hidden=correct_labels_hidden,
+                wrong_labels_displayed=wrong_labels_displayed,
+            )
+        )
+
+    return tuple(results)
+
+
+def parse_checkpoint_path() -> Path:
+    """Read and validate the checkpoint path supplied on the command line."""
+
+    parser = argparse.ArgumentParser(
+        description="Evaluate a trained dog-breed classifier checkpoint."
+    )
+    parser.add_argument(
+        "checkpoint_path",
+        type=Path,
+        help="Path to the .pt checkpoint to evaluate",
+    )
+    arguments = parser.parse_args()
+    checkpoint_path: Path = arguments.checkpoint_path
+
+    if not checkpoint_path.is_file():
+        raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
+
+    return checkpoint_path
+
+
+def select_device() -> torch.device:
+    """Use CUDA when available, otherwise evaluate on the CPU."""
+
+    return torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+
+def infer_classifier_hidden_features(
+    model_state_dict: Mapping[str, Tensor],
+    number_of_breeds: int,
+) -> int | None:
+    """Infer the classifier architecture from its saved tensor shapes."""
+
+    input_weight = model_state_dict.get("classifier.0.weight")
+
+    if input_weight is None or input_weight.ndim != 2:
+        raise ValueError("Checkpoint has no valid classifier input weight")
+
+    output_weight = model_state_dict.get("classifier.3.weight")
+
+    if output_weight is None:
+        if input_weight.shape[0] != number_of_breeds:
+            raise ValueError("Linear classifier output does not match breed count")
+
+        return None
+
+    if output_weight.ndim != 2:
+        raise ValueError("Checkpoint has no valid classifier output weight")
+
+    hidden_features = int(input_weight.shape[0])
+
+    if tuple(output_weight.shape) != (number_of_breeds, hidden_features):
+        raise ValueError("Classifier tensor shapes are inconsistent")
+
+    return hidden_features
+
+
+def load_model_checkpoint(
+    checkpoint_path: Path,
+    expected_breed_names: tuple[str, ...],
+    device: torch.device,
+) -> tuple[nn.Module, dict, int | None, int]:
+    """Load a complete model checkpoint and verify its breed ordering."""
+
+    checkpoint = torch.load(
+        checkpoint_path,
+        map_location=device,
+        weights_only=True,
+    )
+
+    checkpoint_breed_names = tuple(checkpoint["breed_names"])
+
+    if checkpoint_breed_names != expected_breed_names:
+        raise ValueError("Checkpoint breed ordering does not match the current dataset")
+
+    model_input_size = int(checkpoint.get("model_input_size", DEFAULT_MODEL_INPUT_SIZE))
+
+    if model_input_size <= 0:
+        raise ValueError("Checkpoint model input size must be positive")
+
+    model_state_dict = checkpoint["model_state_dict"]
+
+    classifier_hidden_features = infer_classifier_hidden_features(
+        model_state_dict=model_state_dict,
+        number_of_breeds=len(expected_breed_names),
+    )
+
+    model = build_breed_classifier(
+        number_of_breeds=len(expected_breed_names),
+        use_pretrained_weights=False,
+        classifier_hidden_features=classifier_hidden_features,
+    ).to(device)
+
+    model.load_state_dict(model_state_dict)
+    model.eval()
+
+    return model, checkpoint, classifier_hidden_features, model_input_size
+
+
+def evaluate_model(
+    model: nn.Module,
+    data_loader: Iterable[tuple[Tensor, Tensor]],
+    device: torch.device,
+) -> EvaluationResult:
+    """Calculate validation loss and top-one/top-two accuracy."""
+
+    loss_function = nn.CrossEntropyLoss()
+
+    total_loss = 0.0
+    correct_top_one = 0
+    correct_top_two = 0
+    processed_examples = 0
+    true_breed_ids: list[int] = []
+    predicted_breed_ids: list[int] = []
+    top_one_confidences: list[float] = []
+
+    model.eval()
+
+    with torch.inference_mode():
+        for batch_images, batch_breed_ids in data_loader:
+            batch_images = batch_images.to(
+                device,
+                non_blocking=device.type == "cuda",
+            )
+            batch_breed_ids = batch_breed_ids.to(
+                device,
+                non_blocking=device.type == "cuda",
+            )
+
+            with torch.amp.autocast(
+                device_type=device.type,
+                enabled=device.type == "cuda",
+            ):
+                output_logits = model(batch_images)
+                loss = loss_function(output_logits, batch_breed_ids)
+
+            # Softmax converts logits into the same confidence values used by
+            # the server while preserving the predicted class ordering.
+            output_probabilities = output_logits.float().softmax(dim=1)
+
+            top_two_confidences, top_two_breed_ids = output_probabilities.topk(
+                k=2,
+                dim=1,
+            )
+
+            predicted_top_one_ids = top_two_breed_ids[:, 0]
+            predicted_top_one_confidences = top_two_confidences[:, 0]
+            true_breed_ids.extend(
+                int(breed_id) for breed_id in batch_breed_ids.cpu().tolist()
+            )
+            predicted_breed_ids.extend(
+                int(breed_id) for breed_id in predicted_top_one_ids.cpu().tolist()
+            )
+            top_one_confidences.extend(
+                float(confidence)
+                for confidence in predicted_top_one_confidences.cpu().tolist()
+            )
+
+            correct_top_one += (predicted_top_one_ids == batch_breed_ids).sum().item()
+
+            correct_top_two += (
+                (top_two_breed_ids == batch_breed_ids.unsqueeze(1))
+                .any(dim=1)
+                .sum()
+                .item()
+            )
+
+            batch_size = batch_images.size(0)
+            total_loss += loss.item() * batch_size
+            processed_examples += batch_size
+
+    if processed_examples == 0:
+        raise ValueError("Evaluation did not receive any examples")
+
+    return EvaluationResult(
+        loss=total_loss / processed_examples,
+        top_one_accuracy=correct_top_one / processed_examples,
+        top_two_accuracy=correct_top_two / processed_examples,
+        true_breed_ids=tuple(true_breed_ids),
+        predicted_breed_ids=tuple(predicted_breed_ids),
+        top_one_confidences=tuple(top_one_confidences),
+    )
+
+
+def build_confusion_matrix(
+    evaluation_result: EvaluationResult,
+    number_of_breeds: int,
+) -> Tensor:
+    """Count every true-breed and predicted-breed combination."""
+
+    if len(evaluation_result.true_breed_ids) != len(
+        evaluation_result.predicted_breed_ids
+    ):
+        raise ValueError("True and predicted breed ID counts do not match")
+
+    confusion_matrix = torch.zeros(
+        (number_of_breeds, number_of_breeds),
+        dtype=torch.int64,
+    )
+
+    for true_breed_id, predicted_breed_id in zip(
+        evaluation_result.true_breed_ids,
+        evaluation_result.predicted_breed_ids,
+        strict=True,
+    ):
+        confusion_matrix[true_breed_id, predicted_breed_id] += 1
+
+    return confusion_matrix
+
+
+def calculate_breed_accuracies(
+    confusion_matrix: Tensor,
+    breed_names: tuple[str, ...],
+) -> tuple[BreedAccuracy, ...]:
+    """Calculate top-1 accuracy independently for every breed."""
+
+    if tuple(confusion_matrix.shape) != (len(breed_names), len(breed_names)):
+        raise ValueError("Confusion matrix shape does not match the breed count")
+
+    breed_accuracies: list[BreedAccuracy] = []
+
+    for breed_id, breed_name in enumerate(breed_names):
+        total_examples = int(confusion_matrix[breed_id].sum().item())
+        correct_predictions = int(confusion_matrix[breed_id, breed_id].item())
+
+        if total_examples == 0:
+            raise ValueError(f"Breed has no validation examples: {breed_name}")
+
+        breed_accuracies.append(
+            BreedAccuracy(
+                breed_id=breed_id,
+                breed_name=breed_name,
+                correct_predictions=correct_predictions,
+                total_examples=total_examples,
+            )
+        )
+
+    return tuple(breed_accuracies)
+
+
+def find_common_confusions(
+    confusion_matrix: Tensor,
+    breed_names: tuple[str, ...],
+) -> tuple[BreedConfusion, ...]:
+    """Return incorrect breed pairs ordered by their frequency."""
+
+    confusions: list[BreedConfusion] = []
+
+    for true_breed_id, true_breed_name in enumerate(breed_names):
+        true_breed_examples = int(confusion_matrix[true_breed_id].sum().item())
+
+        for predicted_breed_id, predicted_breed_name in enumerate(breed_names):
+            if predicted_breed_id == true_breed_id:
+                continue
+
+            incorrect_predictions = int(
+                confusion_matrix[true_breed_id, predicted_breed_id].item()
+            )
+
+            if incorrect_predictions == 0:
+                continue
+
+            confusions.append(
+                BreedConfusion(
+                    true_breed_name=true_breed_name,
+                    predicted_breed_name=predicted_breed_name,
+                    incorrect_predictions=incorrect_predictions,
+                    true_breed_examples=true_breed_examples,
+                )
+            )
+
+    return tuple(
+        sorted(
+            confusions,
+            key=lambda confusion: confusion.incorrect_predictions,
+            reverse=True,
+        )
+    )
+
+
+def main() -> None:
+    """Load and evaluate the classifier checkpoint selected by the user."""
+
+    checkpoint_path = parse_checkpoint_path()
+    device = select_device()
+
+    training_paths = load_split_paths(TRAIN_SPLIT_PATH)
+    breed_names, breed_to_id = build_breed_mapping(training_paths)
+
+    model, checkpoint, classifier_hidden_features, model_input_size = (
+        load_model_checkpoint(
+            checkpoint_path=checkpoint_path,
+            expected_breed_names=breed_names,
+            device=device,
+        )
+    )
+
+    validation_paths = load_split_paths(VALIDATION_SPLIT_PATH)
+
+    validation_dataset = TsinghuaDogsDataset(
+        validation_paths,
+        breed_to_id,
+        model_input_size=model_input_size,
+    )
+
+    validation_data_loader = DataLoader(
+        validation_dataset,
+        batch_size=EVALUATION_BATCH_SIZE,
+        shuffle=False,
+        num_workers=NUM_WORKERS,
+        pin_memory=device.type == "cuda",
+        persistent_workers=NUM_WORKERS > 0,
+    )
+
+    evaluation_result = evaluate_model(
+        model=model,
+        data_loader=validation_data_loader,
+        device=device,
+    )
+
+    confidence_threshold_results = calculate_confidence_threshold_results(
+        evaluation_result=evaluation_result,
+        thresholds=CONFIDENCE_THRESHOLDS,
+    )
+
+    confusion_matrix = build_confusion_matrix(
+        evaluation_result=evaluation_result,
+        number_of_breeds=len(breed_names),
+    )
+
+    breed_accuracies = calculate_breed_accuracies(
+        confusion_matrix=confusion_matrix,
+        breed_names=breed_names,
+    )
+
+    lowest_breed_accuracies = sorted(
+        breed_accuracies,
+        key=lambda breed_result: breed_result.accuracy,
+    )[:10]
+
+    common_confusions = find_common_confusions(
+        confusion_matrix=confusion_matrix,
+        breed_names=breed_names,
+    )
+
+    print(f"Checkpoint: {checkpoint_path.resolve()}")
+    print(f"Evaluation device: {device}")
+    print(f"Classifier hidden features: {classifier_hidden_features}")
+    print(f"Model input size: {model_input_size} × {model_input_size}")
+    print(f"Checkpoint epoch: {checkpoint['epoch']}")
+    print(f"Saved validation loss: {checkpoint['validation_loss']:.4f}")
+    print("Saved top-1 accuracy: " f"{checkpoint['validation_accuracy']:.2%}")
+
+    print()
+    print(f"Recalculated validation loss: {evaluation_result.loss:.4f}")
+    print(f"Recalculated top-1 accuracy: {evaluation_result.top_one_accuracy:.2%}")
+    print(f"Top-2 accuracy: {evaluation_result.top_two_accuracy:.2%}")
+
+    print()
+    print("Confidence threshold analysis:")
+    print(
+        f"{'Threshold':>9}  "
+        f"{'Coverage':>9}  "
+        f"{'Displayed accuracy':>18}  "
+        f"{'Correct hidden':>14}  "
+        f"{'Wrong displayed':>15}"
+    )
+
+    for threshold_result in confidence_threshold_results:
+        print(
+            f"{threshold_result.threshold:>9.2f}  "
+            f"{threshold_result.coverage:>9.2%}  "
+            f"{threshold_result.displayed_accuracy:>18.2%}  "
+            f"{threshold_result.correct_labels_hidden:>14,}  "
+            f"{threshold_result.wrong_labels_displayed:>15,}"
+        )
+
+    print()
+    print(f"Confusion matrix shape: {tuple(confusion_matrix.shape)}")
+    print(f"Predictions in matrix: {confusion_matrix.sum().item():,}")
+    print(
+        f"Correct predictions in matrix: {confusion_matrix.diagonal().sum().item():,}"
+    )
+
+    print()
+    print("Lowest top-1 breed accuracies:")
+
+    for breed_result in lowest_breed_accuracies:
+        print(
+            f"  {breed_result.breed_name}: "
+            f"{breed_result.accuracy:.2%} "
+            f"({breed_result.correct_predictions}/{breed_result.total_examples})"
+        )
+
+    print()
+    print("Most common breed confusions:")
+    for confusion in common_confusions[:15]:
+        print(
+            f"  {confusion.true_breed_name} -> "
+            f"{confusion.predicted_breed_name}: "
+            f"{confusion.incorrect_predictions}/"
+            f"{confusion.true_breed_examples} "
+            f"({confusion.error_rate:.2%})"
+        )
+
+
+if __name__ == "__main__":
+    main()

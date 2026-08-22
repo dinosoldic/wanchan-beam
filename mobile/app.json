@@ -1,0 +1,53 @@
+{
+  "expo": {
+    "name": "WanChan Beam",
+    "slug": "wanchan-beam",
+    "platforms": ["ios", "android"],
+    "version": "0.1.0",
+    "orientation": "default",
+    "icon": "./assets/logo/logo.png",
+    "scheme": "wanchanbeam",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.dinosoldic.wanchanbeam",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Allow WanChan Beam to use your camera to identify dogs."
+      }
+    },
+    "android": {
+      "package": "com.dinosoldic.wanchanbeam",
+      "predictiveBackGestureEnabled": false,
+      "permissions": ["android.permission.CAMERA"],
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/logo/adaptive-icon.png",
+        "monochromeImage": "./assets/logo/monochrome-icon.png",
+        "backgroundColor": "#FFF8EE"
+      }
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#FFF8EE",
+          "image": "./assets/logo/splash-icon.png",
+          "imageWidth": 200,
+          "resizeMode": "contain"
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "minSdkVersion": 26
+          }
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true,
+      "reactCompiler": true
+    }
+  }
+}

@@ -1,0 +1,38 @@
+# Dependencies
+node_modules/
+
+# Expo
+.expo/
+dist/
+web-build/
+mobile/generated-assets/
+expo-env.d.ts
+*.tsbuildinfo
+
+# Generated native projects
+**/android/
+**/ios/
+
+# Environment and local configuration
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+ml/data/*
+runs/*
+ml/artifacts/**/*.onnx
+ml/artifacts/classifier/checkpoints/*
+ml/docs/learn/*
+ml/docs/*.docx
+
+# Server
+server/tests/fixtures
+
+# Logs and operating-system files
+*.log
+.DS_Store
+Thumbs.db

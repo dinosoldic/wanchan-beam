@@ -1,0 +1,80 @@
+{
+  "detector": {
+    "inputName": "images",
+    "inputSize": {
+      "width": 960,
+      "height": 960
+    },
+    "layout": "NCHW",
+    "dataType": "float32",
+    "colorSpace": "RGB",
+    "resize": {
+      "mode": "letterbox",
+      "preserveAspectRatio": true,
+      "center": true,
+      "paddingValue": [114, 114, 114],
+      "stride": 32
+    },
+    "normalization": {
+      "operation": "divide",
+      "value": 255,
+      "outputRange": [0, 1]
+    }
+  },
+  "mobileDetector": {
+    "inputIndex": 0,
+    "inputSize": {
+      "width": 544,
+      "height": 544
+    },
+    "layout": "NCHW",
+    "dataType": "float32",
+    "colorSpace": "RGB",
+    "resize": {
+      "mode": "letterbox",
+      "preserveAspectRatio": true,
+      "center": true,
+      "paddingValue": [114, 114, 114],
+      "stride": 32
+    },
+    "normalization": {
+      "operation": "divide",
+      "value": 255,
+      "outputRange": [0, 1]
+    }
+  },
+  "classifier": {
+    "inputName": "images",
+    "inputSize": {
+      "width": 256,
+      "height": 256
+    },
+    "layout": "NCHW",
+    "dataType": "float32",
+    "colorSpace": "RGB",
+    "crop": {
+      "source": "detectorBoundingBox",
+      "boxFormat": "xyxy",
+      "coordinateSpace": "originalImagePixels",
+      "clampToImageBounds": true,
+      "minimumCoordinateRounding": "floor",
+      "maximumCoordinateRounding": "ceil"
+    },
+    "resize": {
+      "mode": "letterbox",
+      "preserveAspectRatio": true,
+      "center": true,
+      "interpolation": "bilinear",
+      "paddingValue": [124, 116, 104],
+      "dimensionRounding": "halfToEven",
+      "paddingOffsetRounding": "floor"
+    },
+    "normalization": {
+      "operation": "channelStandardization",
+      "inputScale": 255,
+      "mean": [0.485, 0.456, 0.406],
+      "standardDeviation": [0.229, 0.224, 0.225],
+      "formula": "(pixel / inputScale - mean) / standardDeviation"
+    }
+  }
+}
