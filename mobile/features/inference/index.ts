@@ -28,3 +28,14 @@ export type {
   LiveDetectionTrackerState,
   LiveDetectionTrackerUpdate,
 } from "./stabilizeLiveFrameDetections";
+
+export {
+  BREED_CLASSIFIER_INPUT_BYTE_LENGTH,
+  BREED_CLASSIFIER_INPUT_SIZE,
+  BREED_CLASSIFIER_OUTPUT_BYTE_LENGTH,
+  BREED_CLASSIFIER_OUTPUT_CLASSES,
+  createBreedClassifierInput,
+} from "./createBreedClassifierInput";
+
+export { decodeMobileBreedClassifierOutput } from "./decodeMobileBreedClassifierOutput";
+export type { LiveBreedPrediction } from "./decodeMobileBreedClassifierOutput";

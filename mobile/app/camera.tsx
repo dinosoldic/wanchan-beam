@@ -31,6 +31,12 @@ import {
   rotateFrameDetectionsToOrientation,
   createLiveDetectionTrackerState,
   stabilizeLiveFrameDetections,
+  BREED_CLASSIFIER_INPUT_BYTE_LENGTH,
+  BREED_CLASSIFIER_OUTPUT_BYTE_LENGTH,
+  createBreedClassifierInput,
+  decodeMobileBreedClassifierOutput,
+  type LiveBreedPrediction,
+  type LiveDetectionBox,
   type LiveFrameDetectionResult,
 } from "@/features/inference";
 
@@ -38,6 +44,15 @@ import {
 // Metro can bundle them without crossing the Windows W:/C: drive boundary.
 import mobileBreedClassifierAsset from "../generated-assets/models/mobile-breed-classifier.tflite";
 import mobileDetectorAsset from "../generated-assets/models/mobile-detector.tflite";
+import breedLabels from "../generated-assets/models/labels.json";
+
+interface LiveBreedClassifierSmokeResult {
+  detectorBox: LiveDetectionBox;
+  detectorConfidence: number;
+  prediction: LiveBreedPrediction;
+  preprocessingTimeMs: number;
+  inferenceTimeMs: number;
+}
 
 //// consts
 const LIVE_FRAME_RESOLUTION = {
@@ -103,6 +118,22 @@ export default function CameraScreen() {
     [],
   );
 
+  const handleLiveBreedClassifierSmokeResult = useCallback(
+    (result: LiveBreedClassifierSmokeResult) => {
+      const breedLabel =
+        breedLabels[result.prediction.classId] ?? "Unknown breed";
+
+      console.log(
+        "Live breed classifier smoke test:",
+        JSON.stringify({
+          ...result,
+          breedLabel,
+        }),
+      );
+    },
+    [],
+  );
+
   // reset tracking on orientation change
   useEffect(() => {
     liveDetectionTracker.current = createLiveDetectionTrackerState();
@@ -144,6 +175,8 @@ export default function CameraScreen() {
     [],
   );
 
+  const breedClassifierModel = mobileBreedClassifier.model;
+
   // resize input for model
   const liveFrameResizer = useResizer({
     width: DETECTOR_INPUT_SIZE,
@@ -161,6 +194,11 @@ export default function CameraScreen() {
     () => createSynchronizable(false),
     [],
   );
+  const hasRunBreedClassifierSmokeTest = useMemo(
+    () => createSynchronizable(false),
+    [],
+  );
+
   const lastDetectionLogTime = useMemo(() => createSynchronizable(0), []);
 
   const frameResizer = liveFrameResizer.resizer;
@@ -244,6 +282,80 @@ export default function CameraScreen() {
           const detectorSpaceDetections = suppressDuplicateDetections(
             decodeMobileDetectorOutput(detectorOutput),
           );
+
+          if (
+            breedClassifierModel != null &&
+            detectorSpaceDetections.length > 0 &&
+            !hasRunBreedClassifierSmokeTest.getBlocking()
+          ) {
+            hasRunBreedClassifierSmokeTest.setBlocking(true);
+
+            try {
+              const selectedDetection = detectorSpaceDetections[0]!;
+
+              const preprocessingStartedAt = performance.now();
+
+              const classifierInput = createBreedClassifierInput(
+                detectorInput,
+                selectedDetection.box,
+              );
+
+              const preprocessingTimeMs =
+                performance.now() - preprocessingStartedAt;
+
+              if (
+                classifierInput.byteLength !==
+                BREED_CLASSIFIER_INPUT_BYTE_LENGTH
+              ) {
+                throw new Error(
+                  `Expected ${BREED_CLASSIFIER_INPUT_BYTE_LENGTH} classifier ` +
+                    `input bytes, received ${classifierInput.byteLength}.`,
+                );
+              }
+
+              const classifierInferenceStartedAt = performance.now();
+
+              const classifierOutputs = breedClassifierModel.runSync([
+                classifierInput,
+              ]);
+
+              const inferenceTimeMs =
+                performance.now() - classifierInferenceStartedAt;
+
+              if (classifierOutputs.length !== 1) {
+                throw new Error(
+                  `Expected one classifier output, received ` +
+                    `${classifierOutputs.length}.`,
+                );
+              }
+
+              const classifierOutput = classifierOutputs[0];
+
+              if (
+                classifierOutput == null ||
+                classifierOutput.byteLength !==
+                  BREED_CLASSIFIER_OUTPUT_BYTE_LENGTH
+              ) {
+                throw new Error(
+                  `Expected ${BREED_CLASSIFIER_OUTPUT_BYTE_LENGTH} classifier ` +
+                    `output bytes, received ${classifierOutput?.byteLength ?? 0}.`,
+                );
+              }
+
+              const prediction =
+                decodeMobileBreedClassifierOutput(classifierOutput);
+
+              scheduleOnRN(handleLiveBreedClassifierSmokeResult, {
+                detectorBox: selectedDetection.box,
+                detectorConfidence: selectedDetection.confidence,
+                prediction,
+                preprocessingTimeMs,
+                inferenceTimeMs,
+              });
+            } catch (error) {
+              console.error("Live breed classifier smoke test failed:", error);
+            }
+          }
 
           // Undo the resizer's square letterboxing. These boxes now refer to the
           // correctly oriented camera frame, but not yet the on-screen preview.
