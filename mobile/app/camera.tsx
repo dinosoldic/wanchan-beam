@@ -34,8 +34,9 @@ import {
   type LiveFrameDetectionResult,
 } from "@/features/inference";
 
-// The npm prestart/preandroid hooks copy the shared versioned model here so
-// Metro can bundle it without crossing the Windows W:/C: drive boundary.
+// The npm prestart/preandroid hooks copy shared versioned assets here so
+// Metro can bundle them without crossing the Windows W:/C: drive boundary.
+import mobileBreedClassifierAsset from "../generated-assets/models/mobile-breed-classifier.tflite";
 import mobileDetectorAsset from "../generated-assets/models/mobile-detector.tflite";
 
 //// consts
@@ -136,6 +137,12 @@ export default function CameraScreen() {
   // us a reliable baseline before testing Android GPU or NNAPI acceleration.
   const mobileDetector = useTensorflowModel(mobileDetectorAsset, []);
   const detectorModel = mobileDetector.model;
+
+  // breed classifier
+  const mobileBreedClassifier = useTensorflowModel(
+    mobileBreedClassifierAsset,
+    [],
+  );
 
   // resize input for model
   const liveFrameResizer = useResizer({
@@ -317,6 +324,21 @@ export default function CameraScreen() {
       });
     }
   }, [mobileDetector]);
+
+  // Confirm the classifier bundled into the app has the verified tensor contract.
+  useEffect(() => {
+    if (mobileBreedClassifier.state === "loaded") {
+      console.log("Mobile breed classifier ready:", {
+        inputs: mobileBreedClassifier.model.inputs,
+        outputs: mobileBreedClassifier.model.outputs,
+      });
+    } else if (mobileBreedClassifier.state === "error") {
+      console.error(
+        "Mobile breed classifier unavailable:",
+        mobileBreedClassifier.error,
+      );
+    }
+  }, [mobileBreedClassifier]);
 
   // Confirm that this phone supports VisionCamera's GPU resize pipeline before
   // attempting to pass camera buffers through it.
