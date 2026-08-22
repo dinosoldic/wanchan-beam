@@ -24,6 +24,7 @@ import { setCapturedPhoto } from "@/features/camera";
 import {
   decodeMobileDetectorOutput,
   suppressDuplicateDetections,
+  mapDetectorDetectionsToFrame,
 } from "@/features/inference";
 
 // The npm prestart/preandroid hooks copy the shared versioned model here so
@@ -169,10 +170,18 @@ export default function CameraScreen() {
             );
           }
 
-          // Convert the model's 300 raw rows into valid dog detections.
-          // and supress boxes
-          const dogDetections = suppressDuplicateDetections(
+          // Decode model rows and remove boxes that describe the same physical dog.
+          const detectorSpaceDetections = suppressDuplicateDetections(
             decodeMobileDetectorOutput(detectorOutput),
+          );
+
+          // Undo the resizer's square letterboxing. These boxes now refer to the
+          // correctly oriented camera frame, but not yet the on-screen preview.
+          const frameDetectionResult = mapDetectorDetectionsToFrame(
+            detectorSpaceDetections,
+            frame.width,
+            frame.height,
+            frame.orientation,
           );
 
           // Log only the first successful inference so console traffic cannot
@@ -196,10 +205,20 @@ export default function CameraScreen() {
           ) {
             lastDetectionLogTime.setBlocking(currentTime);
 
-            console.log("Live dog detections:", {
-              count: dogDetections.length,
-              detections: dogDetections,
-            });
+            console.log(
+              "Live dog detections:",
+              JSON.stringify({
+                physicalFrame: {
+                  width: frame.width,
+                  height: frame.height,
+                  orientation: frame.orientation,
+                  isMirrored: frame.isMirrored,
+                },
+                orientedFrame: frameDetectionResult.frame,
+                count: frameDetectionResult.detections.length,
+                detections: frameDetectionResult.detections,
+              }),
+            );
           }
         } finally {
           // The resized GPU allocation is separate from the original camera frame.

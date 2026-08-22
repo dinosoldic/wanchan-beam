@@ -4,3 +4,10 @@ export type {
   LiveDogDetection,
 } from "./decodeMobileDetectorOutput";
 export { suppressDuplicateDetections } from "./suppressDuplicateDetections";
+
+export { mapDetectorDetectionsToFrame } from "./mapDetectorDetectionsToFrame";
+export type {
+  LiveFrameDetectionResult,
+  LiveFrameDogDetection,
+  LiveFrameSize,
+} from "./mapDetectorDetectionsToFrame";
