@@ -41,6 +41,13 @@ const DETECTOR_INPUT_BYTE_LENGTH =
   3 *
   Float32Array.BYTES_PER_ELEMENT;
 
+const DETECTOR_OUTPUT_ROWS = 300;
+const DETECTOR_VALUES_PER_ROW = 6;
+const DETECTOR_OUTPUT_BYTE_LENGTH =
+  DETECTOR_OUTPUT_ROWS *
+  DETECTOR_VALUES_PER_ROW *
+  Float32Array.BYTES_PER_ELEMENT;
+
 export default function CameraScreen() {
   const router = useRouter();
   const { hasPermission, canRequestPermission, requestPermission } =
@@ -51,6 +58,11 @@ export default function CameraScreen() {
     quality: 0.9,
     qualityPrioritization: "quality",
   });
+
+  // An empty delegate list deliberately starts with the CPU backend. This gives
+  // us a reliable baseline before testing Android GPU or NNAPI acceleration.
+  const mobileDetector = useTensorflowModel(mobileDetectorAsset, []);
+  const detectorModel = mobileDetector.model;
 
   // resize input for model
   const liveFrameResizer = useResizer({
@@ -65,6 +77,10 @@ export default function CameraScreen() {
 
   const lastPreprocessTime = useMemo(() => createSynchronizable(0), []);
   const hasLoggedDetectorInput = useMemo(() => createSynchronizable(false), []);
+  const hasLoggedDetectorOutput = useMemo(
+    () => createSynchronizable(false),
+    [],
+  );
 
   const frameResizer = liveFrameResizer.resizer;
 
@@ -78,7 +94,8 @@ export default function CameraScreen() {
       "worklet";
 
       try {
-        if (frameResizer == null) {
+        // Frames are discarded until both asynchronous native resources are ready.
+        if (frameResizer == null || detectorModel == null) {
           return;
         }
 
@@ -114,12 +131,51 @@ export default function CameraScreen() {
               expectedByteLength: DETECTOR_INPUT_BYTE_LENGTH,
             });
           }
+
+          const inferenceStartedAt = performance.now();
+
+          // runSync keeps detectorInput valid until native inference has consumed
+          // it. This runs on the Worklet thread, not React's UI/JS thread.
+          const detectorOutputs = detectorModel.runSync([detectorInput]);
+          const inferenceTimeMs = performance.now() - inferenceStartedAt;
+
+          if (detectorOutputs.length !== 1) {
+            throw new Error(
+              `Expected one detector output, received ${detectorOutputs.length}.`,
+            );
+          }
+
+          const detectorOutput = detectorOutputs[0];
+
+          if (
+            detectorOutput == null ||
+            detectorOutput.byteLength !== DETECTOR_OUTPUT_BYTE_LENGTH
+          ) {
+            throw new Error(
+              `Expected ${DETECTOR_OUTPUT_BYTE_LENGTH} output bytes, received ${
+                detectorOutput?.byteLength ?? 0
+              }.`,
+            );
+          }
+
+          // Log only the first successful inference so console traffic cannot
+          // affect subsequent timing or camera smoothness.
+          if (!hasLoggedDetectorOutput.getBlocking()) {
+            hasLoggedDetectorOutput.setBlocking(true);
+
+            console.log("Live detector inference passed:", {
+              inferenceTimeMs,
+              outputCount: detectorOutputs.length,
+              outputByteLength: detectorOutput.byteLength,
+              expectedOutputByteLength: DETECTOR_OUTPUT_BYTE_LENGTH,
+            });
+          }
         } finally {
           // The resized GPU allocation is separate from the original camera frame.
           resizedFrame.dispose();
         }
       } catch (error) {
-        console.error("Live frame preprocessing failed:", error);
+        console.error("Live detector pipeline failed:", error);
       } finally {
         // This also runs for skipped frames and early returns.
         frame.dispose();
@@ -133,10 +189,6 @@ export default function CameraScreen() {
     () => [photoOutput, frameOutput],
     [photoOutput, frameOutput],
   );
-
-  // An empty delegate list deliberately starts with the CPU backend. This gives
-  // us a reliable baseline before testing Android GPU or NNAPI acceleration.
-  const mobileDetector = useTensorflowModel(mobileDetectorAsset, []);
 
   const [isCameraActive, setIsCameraActive] = useState(false);
   const [isCameraReady, setIsCameraReady] = useState(false);
