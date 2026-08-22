@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import * as FileSystem from "expo-file-system/legacy";
 import { useFocusEffect, useRouter } from "expo-router";
+import { useResizer } from "react-native-vision-camera-resizer";
+import { createSynchronizable } from "react-native-worklets";
 import { useTensorflowModel } from "react-native-fast-tflite";
 import {
   Image,
@@ -29,36 +31,99 @@ const LIVE_FRAME_RESOLUTION = {
   height: 480,
 };
 
+const DETECTOR_INPUT_SIZE = 544;
+
+const LIVE_PREPROCESS_INTERVAL_MS = 500;
+
+const DETECTOR_INPUT_BYTE_LENGTH =
+  DETECTOR_INPUT_SIZE *
+  DETECTOR_INPUT_SIZE *
+  3 *
+  Float32Array.BYTES_PER_ELEMENT;
+
 export default function CameraScreen() {
   const router = useRouter();
   const { hasPermission, canRequestPermission, requestPermission } =
     useCameraPermission();
 
-  // Photo capture keeps its own high-quality JPEG output. It remains separate
-  // from the smaller live-frame output used by on-device detection.
   const photoOutput = usePhotoOutput({
     containerFormat: "jpeg",
     quality: 0.9,
     qualityPrioritization: "quality",
   });
 
-  // This output receives preview frames without involving the React JS thread.
-  // Resizing, throttling, and inference will be added after this smoke test.
+  // resize input for model
+  const liveFrameResizer = useResizer({
+    width: DETECTOR_INPUT_SIZE,
+    height: DETECTOR_INPUT_SIZE,
+    channelOrder: "rgb",
+    dataType: "float32",
+    pixelLayout: "planar",
+
+    scaleMode: "contain",
+  });
+
+  const lastPreprocessTime = useMemo(() => createSynchronizable(0), []);
+  const hasLoggedDetectorInput = useMemo(() => createSynchronizable(false), []);
+
+  const frameResizer = liveFrameResizer.resizer;
+
+  // Captures all frames but only processes 2 FPS
   const frameOutput = useFrameOutput({
-    // A small YUV frame keeps camera bandwidth low. The GPU resizer will convert
-    // selected frames into the detector's square RGB input later.
     targetResolution: LIVE_FRAME_RESOLUTION,
     pixelFormat: "yuv",
-
-    // Never queue stale frames behind slow work. Once inference is connected,
-    // the camera will prefer a newer frame over completing an old backlog.
     dropFramesWhileBusy: true,
+
     onFrame(frame) {
       "worklet";
 
-      // Every Frame owns a native GPU buffer. It must be released on every code
-      // path or the finite camera buffer pool fills and the preview stalls.
-      frame.dispose();
+      try {
+        if (frameResizer == null) {
+          return;
+        }
+
+        const currentTime = performance.now();
+        const previousPreprocessTime = lastPreprocessTime.getBlocking();
+
+        if (
+          currentTime - previousPreprocessTime <
+          LIVE_PREPROCESS_INTERVAL_MS
+        ) {
+          return;
+        }
+
+        lastPreprocessTime.setBlocking(currentTime);
+
+        const resizedFrame = frameResizer.resize(frame);
+
+        try {
+          const detectorInput = resizedFrame.getPixelBuffer();
+
+          // Log the tensor contract once without continuously crossing from the
+          // Worklet thread into the React Native logging thread.
+          if (!hasLoggedDetectorInput.getBlocking()) {
+            hasLoggedDetectorInput.setBlocking(true);
+
+            console.log("Live detector input prepared:", {
+              width: resizedFrame.width,
+              height: resizedFrame.height,
+              channelOrder: resizedFrame.channelOrder,
+              dataType: resizedFrame.dataType,
+              pixelLayout: resizedFrame.pixelLayout,
+              byteLength: detectorInput.byteLength,
+              expectedByteLength: DETECTOR_INPUT_BYTE_LENGTH,
+            });
+          }
+        } finally {
+          // The resized GPU allocation is separate from the original camera frame.
+          resizedFrame.dispose();
+        }
+      } catch (error) {
+        console.error("Live frame preprocessing failed:", error);
+      } finally {
+        // This also runs for skipped frames and early returns.
+        frame.dispose();
+      }
     },
   });
 
@@ -73,9 +138,6 @@ export default function CameraScreen() {
   // us a reliable baseline before testing Android GPU or NNAPI acceleration.
   const mobileDetector = useTensorflowModel(mobileDetectorAsset, []);
 
-  // Active controls whether the route owns a running camera session. Ready is
-  // set by native lifecycle callbacks and prevents capture during a restart.
-  // Scanning prevents two rapid presses from starting overlapping captures.
   const [isCameraActive, setIsCameraActive] = useState(false);
   const [isCameraReady, setIsCameraReady] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
@@ -90,6 +152,16 @@ export default function CameraScreen() {
       });
     }
   }, [mobileDetector]);
+
+  // Confirm that this phone supports VisionCamera's GPU resize pipeline before
+  // attempting to pass camera buffers through it.
+  useEffect(() => {
+    if (liveFrameResizer.state === "ready") {
+      console.log("Live frame resizer ready.");
+    } else if (liveFrameResizer.state === "error") {
+      console.error("Live frame resizer unavailable:", liveFrameResizer.error);
+    }
+  }, [liveFrameResizer]);
 
   // Stop the native camera session while another route is in front of this one.
   useFocusEffect(
