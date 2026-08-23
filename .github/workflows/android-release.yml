@@ -77,13 +77,13 @@ jobs:
       - name: Install JavaScript dependencies
         run: npm ci
 
+      - name: Sync bundled model assets
+        run: npm run sync:model-assets
+
       - name: Check mobile code
         run: |
           npm run typecheck
           npm run lint
-
-      - name: Sync bundled model assets
-        run: npm run sync:model-assets
 
       - name: Generate Android project
         env:
