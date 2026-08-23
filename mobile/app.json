@@ -49,7 +49,10 @@
           }
         }
       ],
-      "expo-asset"
+      "expo-asset",
+      "expo-sharing",
+      "expo-font",
+      "./plugins/withAndroidNativeBuildFixes"
     ],
     "experiments": {
       "typedRoutes": true,
