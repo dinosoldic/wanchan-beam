@@ -1,0 +1,155 @@
+name: Android release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-android:
+    name: Build signed Android APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      EXPO_PUBLIC_API_URL: ${{ vars.EXPO_PUBLIC_API_URL }}
+    defaults:
+      run:
+        shell: bash
+        working-directory: mobile
+
+    steps:
+      - name: Check out release source
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: Validate release configuration
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          if [[ ! "$EXPO_PUBLIC_API_URL" =~ ^https:// ]]; then
+            echo "EXPO_PUBLIC_API_URL must be configured as an HTTPS repository variable."
+            exit 1
+          fi
+
+          for variable_name in \
+            ANDROID_KEYSTORE_BASE64 \
+            ANDROID_KEYSTORE_PASSWORD; do
+            if [ -z "${!variable_name}" ]; then
+              echo "Missing required GitHub secret: $variable_name"
+              exit 1
+            fi
+          done
+
+          package_version="$(node -p "require('./package.json').version")"
+          expo_version="$(node -p "require('./app.json').expo.version")"
+          if [ "$package_version" != "$expo_version" ]; then
+            echo "package.json ($package_version) and app.json ($expo_version) disagree."
+            exit 1
+          fi
+
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            tag_version="${GITHUB_REF_NAME#v}"
+            if [ "$tag_version" != "$package_version" ]; then
+              echo "Tag $GITHUB_REF_NAME does not match app version $package_version."
+              exit 1
+            fi
+          fi
+
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" \
+            | base64 --decode > "$RUNNER_TEMP/wanchan-beam-upload.keystore"
+          chmod 600 "$RUNNER_TEMP/wanchan-beam-upload.keystore"
+
+      - name: Install JavaScript dependencies
+        run: npm ci
+
+      - name: Check mobile code
+        run: |
+          npm run typecheck
+          npm run lint
+
+      - name: Sync bundled model assets
+        run: npm run sync:model-assets
+
+      - name: Generate Android project
+        env:
+          CI: "1"
+        run: npx expo prebuild --platform android --clean --no-install
+
+      - name: Set up Java and Gradle cache
+        uses: actions/setup-java@v5
+        with:
+          distribution: microsoft
+          java-version: 17
+          cache: gradle
+          cache-dependency-path: |
+            mobile/android/**/*.gradle*
+            mobile/android/gradle/wrapper/gradle-wrapper.properties
+
+      - name: Build signed release APK
+        env:
+          ORG_GRADLE_PROJECT_WANCHAN_UPLOAD_STORE_FILE: ${{ runner.temp }}/wanchan-beam-upload.keystore
+          ORG_GRADLE_PROJECT_WANCHAN_UPLOAD_STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ORG_GRADLE_PROJECT_WANCHAN_UPLOAD_KEY_ALIAS: wanchan-beam
+          ORG_GRADLE_PROJECT_WANCHAN_UPLOAD_KEY_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          chmod +x android/gradlew
+          android/gradlew -p android app:assembleRelease --no-daemon
+
+      - name: Name and verify APK
+        id: apk
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          apk_name="wanchan-beam-v${version}-android.apk"
+          apk_path="$GITHUB_WORKSPACE/dist/$apk_name"
+          mkdir -p "$GITHUB_WORKSPACE/dist"
+          cp android/app/build/outputs/apk/release/app-release.apk "$apk_path"
+
+          apksigner="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          if [ -z "$apksigner" ]; then
+            echo "Could not find Android apksigner."
+            exit 1
+          fi
+          "$apksigner" verify --verbose --print-certs "$apk_path"
+
+          echo "name=$apk_name" >> "$GITHUB_OUTPUT"
+          echo "path=$apk_path" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Store APK from this workflow run
+        uses: actions/upload-artifact@v7
+        with:
+          name: wanchan-beam-android-v${{ steps.apk.outputs.version }}
+          path: ${{ steps.apk.outputs.path }}
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Publish APK on the GitHub Release
+        if: github.event_name == 'push' && github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          APK_NAME: ${{ steps.apk.outputs.name }}
+          APK_PATH: ${{ steps.apk.outputs.path }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" "$APK_PATH#Android APK" --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" "$APK_PATH#Android APK" \
+              --verify-tag \
+              --generate-notes \
+              --title "WanChan Beam $GITHUB_REF_NAME"
+          fi
