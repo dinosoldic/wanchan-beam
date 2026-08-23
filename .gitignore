@@ -18,6 +18,11 @@ expo-env.d.ts
 .env.*
 !.env.example
 
+# App signing credentials
+*.jks
+*.keystore
+*.p12
+
 # Python
 __pycache__/
 *.py[cod]
