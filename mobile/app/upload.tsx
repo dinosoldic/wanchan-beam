@@ -12,12 +12,15 @@ import {
   type Size,
   useResultExport,
 } from "@/features/results";
-import { detectDogs } from "@/services/RemoteInferenceService";
+import { useMobileInferenceModels } from "@/features/inference";
+import { detectDogs } from "@/services/DetectionService";
 import type { DogDetectionResponse } from "@/types/detection";
 
 const MINIMUM_SCAN_DURATION_MS = 2000;
 
 export default function UploadScreen() {
+  const { mobileDetector, mobileBreedClassifier } =
+    useMobileInferenceModels();
   const [imageUri, setImageUri] = useState<string | null>(null);
   const [imageSize, setImageSize] = useState<Size | null>(null);
   const [detectionResult, setDetectionResult] =
@@ -74,7 +77,10 @@ export default function UploadScreen() {
 
     try {
       const [result] = await Promise.all([
-        detectDogs(imageUri),
+        detectDogs(imageUri, {
+          detectorModel: mobileDetector.model,
+          breedClassifierModel: mobileBreedClassifier.model,
+        }),
         minimumScanDuration,
       ]);
 

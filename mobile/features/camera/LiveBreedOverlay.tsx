@@ -6,6 +6,8 @@ import type {
   LiveDetectionBox,
 } from "@/features/inference";
 
+import { MINIMUM_LIVE_BREED_CONFIDENCE } from "./liveBreedConfig";
+
 interface LiveBreedOverlayPrediction extends LiveBreedPrediction {
   label: string;
 }
@@ -43,7 +45,6 @@ interface LiveBreedCallout extends LiveBreedAnchor {
 const LABEL_WIDTH = 132;
 const LABEL_SLOT_HEIGHT = 42;
 const EDGE_PADDING = 6;
-const MINIMUM_BREED_CONFIDENCE = 0.4;
 
 const CROWDED_ENTER_COUNT = 4;
 const CROWDED_EXIT_COUNT = 2;
@@ -58,7 +59,7 @@ function clamp(value: number, minimum: number, maximum: number): number {
 }
 
 function formatBreedLabel(prediction: LiveBreedOverlayPrediction): string {
-  if (prediction.confidence < MINIMUM_BREED_CONFIDENCE) {
+  if (prediction.confidence < MINIMUM_LIVE_BREED_CONFIDENCE) {
     return "Breed uncertain";
   }
 

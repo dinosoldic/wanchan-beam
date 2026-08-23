@@ -33,9 +33,9 @@ const EDGE_PADDING = 6;
 const DOT_SIZE = 9;
 const LINE_THICKNESS = 2;
 
-// Selected from clean-crop validation; re-evaluate for future models and with
-// a labeled set of detector-generated crops.
-const MINIMUM_BREED_CONFIDENCE = 0.4;
+// Detector crops are less controlled than validation images, so keep a small
+// uncertainty guard without hiding otherwise useful predictions too often.
+const MINIMUM_BREED_CONFIDENCE = 0.34;
 
 function formatBreedLabel(label: string): string {
   return label

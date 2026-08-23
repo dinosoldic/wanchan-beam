@@ -1,6 +1,8 @@
 import { Stack, useRouter } from "expo-router";
 import { Pressable, StyleSheet, View } from "react-native";
 
+import { MobileInferenceProvider } from "@/features/inference";
+
 export default function RootLayout() {
   const router = useRouter();
 
@@ -30,7 +32,8 @@ export default function RootLayout() {
   });
 
   return (
-    <Stack>
+    <MobileInferenceProvider>
+      <Stack>
       <Stack.Screen name="index" options={{ headerShown: false }} />
       <Stack.Screen
         name="camera"
@@ -98,6 +101,7 @@ export default function RootLayout() {
           ),
         }}
       />
-    </Stack>
+      </Stack>
+    </MobileInferenceProvider>
   );
 }

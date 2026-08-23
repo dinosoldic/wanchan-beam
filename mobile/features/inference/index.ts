@@ -42,3 +42,11 @@ export type { LiveBreedPrediction } from "./decodeMobileBreedClassifierOutput";
 
 export { findBreedClassificationDetection } from "./findBreedClassificationDetection";
 export type { LiveBreedClassificationRequest } from "./findBreedClassificationDetection";
+
+export {
+  MobileInferenceProvider,
+  useMobileInferenceModels,
+} from "./MobileInferenceProvider";
+
+export { detectDogsLocally } from "./detectDogsLocally";
+export type { LocalInferenceModels } from "./detectDogsLocally";

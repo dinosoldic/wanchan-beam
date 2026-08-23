@@ -16,7 +16,8 @@ import {
   type Size,
   useResultExport,
 } from "@/features/results";
-import { detectDogs } from "@/services/RemoteInferenceService";
+import { useMobileInferenceModels } from "@/features/inference";
+import { detectDogs } from "@/services/DetectionService";
 import type { DogDetectionResponse } from "@/types/detection";
 
 const MINIMUM_SCAN_DURATION_MS = 2000;
@@ -24,6 +25,8 @@ const MINIMUM_SCAN_DURATION_MS = 2000;
 export default function StaticScanScreen() {
   const router = useRouter();
   const navigation = useNavigation();
+  const { mobileDetector, mobileBreedClassifier } =
+    useMobileInferenceModels();
 
   const capturedPhoto = getCapturedPhoto();
   const [detectionResult, setDetectionResult] =
@@ -61,7 +64,10 @@ export default function StaticScanScreen() {
 
       try {
         const [result] = await Promise.all([
-          detectDogs(photo.uri),
+          detectDogs(photo.uri, {
+            detectorModel: mobileDetector.model,
+            breedClassifierModel: mobileBreedClassifier.model,
+          }),
           minimumScanDuration,
         ]);
 
@@ -88,7 +94,12 @@ export default function StaticScanScreen() {
     return () => {
       canceled = true;
     };
-  }, [capturedPhoto, scanAttempt]);
+  }, [
+    capturedPhoto,
+    mobileBreedClassifier.model,
+    mobileDetector.model,
+    scanAttempt,
+  ]);
 
   useEffect(() => {
     const unsubscribe = navigation.addListener("beforeRemove", () => {

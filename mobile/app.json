@@ -2,7 +2,10 @@
   "expo": {
     "name": "WanChan Beam",
     "slug": "wanchan-beam",
-    "platforms": ["ios", "android"],
+    "platforms": [
+      "ios",
+      "android"
+    ],
     "version": "0.1.0",
     "orientation": "default",
     "icon": "./assets/logo/logo.png",
@@ -18,7 +21,9 @@
     "android": {
       "package": "com.dinosoldic.wanchanbeam",
       "predictiveBackGestureEnabled": false,
-      "permissions": ["android.permission.CAMERA"],
+      "permissions": [
+        "android.permission.CAMERA"
+      ],
       "adaptiveIcon": {
         "foregroundImage": "./assets/logo/adaptive-icon.png",
         "monochromeImage": "./assets/logo/monochrome-icon.png",
@@ -43,7 +48,11 @@
             "minSdkVersion": 26
           }
         }
-      ]
+      ],
+      "expo-asset",
+      "expo-sharing",
+      "expo-font",
+      "./plugins/withAndroidNativeBuildFixes"
     ],
     "experiments": {
       "typedRoutes": true,

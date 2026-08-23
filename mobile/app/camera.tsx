@@ -3,7 +3,6 @@ import * as FileSystem from "expo-file-system/legacy";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useResizer } from "react-native-vision-camera-resizer";
 import { createSynchronizable, scheduleOnRN } from "react-native-worklets";
-import { useTensorflowModel } from "react-native-fast-tflite";
 import {
   Image,
   Linking,
@@ -15,6 +14,7 @@ import {
 } from "react-native";
 import {
   Camera,
+  useCameraDevice,
   useCameraPermission,
   useFrameOutput,
   useOrientation,
@@ -22,7 +22,13 @@ import {
 } from "react-native-vision-camera";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { LiveBreedOverlay, setCapturedPhoto } from "@/features/camera";
+import {
+  LiveBreedOverlay,
+  LIVE_BREED_RETRY_DELAY_UPDATES,
+  MAXIMUM_LIVE_BREED_CLASSIFICATION_ATTEMPTS,
+  MINIMUM_LIVE_BREED_CONFIDENCE,
+  setCapturedPhoto,
+} from "@/features/camera";
 import {
   decodeMobileDetectorOutput,
   mapDetectorDetectionsToFrame,
@@ -36,15 +42,12 @@ import {
   createBreedClassifierInput,
   decodeMobileBreedClassifierOutput,
   findBreedClassificationDetection,
+  useMobileInferenceModels,
   type LiveBreedPrediction,
   type LiveFrameDetectionResult,
   type LiveBreedClassificationRequest,
 } from "@/features/inference";
 
-// The npm prestart/preandroid hooks copy shared versioned assets here so
-// Metro can bundle them without crossing the Windows W:/C: drive boundary.
-import mobileBreedClassifierAsset from "../generated-assets/models/mobile-breed-classifier.tflite";
-import mobileDetectorAsset from "../generated-assets/models/mobile-detector.tflite";
 import breedLabels from "../generated-assets/models/labels.json";
 
 interface LiveBreedClassificationResult {
@@ -56,6 +59,11 @@ interface LiveBreedClassificationResult {
 
 interface CachedLiveBreedPrediction extends LiveBreedPrediction {
   label: string;
+}
+
+interface LiveBreedRetryState {
+  classificationAttempts: number;
+  retryAfterDetectionUpdate: number;
 }
 
 //// consts
@@ -88,8 +96,10 @@ const DETECTOR_OUTPUT_BYTE_LENGTH =
 /// funcs
 export default function CameraScreen() {
   const router = useRouter();
+  const { mobileDetector, mobileBreedClassifier } = useMobileInferenceModels();
   const { hasPermission, canRequestPermission, requestPermission } =
     useCameraPermission();
+  const backCamera = useCameraDevice("back");
 
   // Device orientation keeps inference pixels upright. Interface orientation
   // represents the React layout, which may remain portrait when rotation is locked.
@@ -113,6 +123,15 @@ export default function CameraScreen() {
   const breedPredictionsByTrackId = useRef<
     Record<number, CachedLiveBreedPrediction>
   >({});
+  const [displayedBreedPredictionsByTrackId, setDisplayedBreedPredictions] =
+    useState<Record<number, CachedLiveBreedPrediction>>({});
+
+  // Retry state is also keyed by stable track ID, so each visible dog has its
+  // own attempt count and retry delay.
+  const breedRetryStateByTrackId = useRef<Record<number, LiveBreedRetryState>>(
+    {},
+  );
+  const liveDetectionUpdateCount = useRef(0);
 
   const failedBreedTrackIds = useRef(new Set<number>());
 
@@ -139,6 +158,8 @@ export default function CameraScreen() {
   // Stabilization runs here after the Worklet transfers its small decoded result.
   const handleLiveDetectionResult = useCallback(
     (result: LiveFrameDetectionResult) => {
+      liveDetectionUpdateCount.current += 1;
+
       const trackerUpdate = stabilizeLiveFrameDetections(
         liveDetectionTracker.current,
         result,
@@ -167,11 +188,25 @@ export default function CameraScreen() {
         }
       }
 
+      for (const retryTrackId of Object.keys(
+        breedRetryStateByTrackId.current,
+      )) {
+        const trackId = Number(retryTrackId);
+
+        if (!activeTrackIds.has(trackId)) {
+          delete breedRetryStateByTrackId.current[trackId];
+        }
+      }
+
       for (const failedTrackId of failedBreedTrackIds.current) {
         if (!activeTrackIds.has(failedTrackId)) {
           failedBreedTrackIds.current.delete(failedTrackId);
         }
       }
+
+      setDisplayedBreedPredictions({
+        ...breedPredictionsByTrackId.current,
+      });
 
       const pendingRequest = pendingBreedClassificationRequest.current;
 
@@ -199,7 +234,9 @@ export default function CameraScreen() {
         return;
       }
 
-      const nextDetection = trackedDetections.find((detection) => {
+      // Every visible dog receives its first classification before uncertain
+      // predictions are allowed to consume another classifier pass.
+      const unclassifiedDetection = trackedDetections.find((detection) => {
         const trackId = detection.trackId;
 
         return (
@@ -209,9 +246,51 @@ export default function CameraScreen() {
         );
       });
 
+      const retryDetection =
+        unclassifiedDetection === undefined
+          ? trackedDetections.find((detection) => {
+              const trackId = detection.trackId;
+
+              if (
+                trackId === undefined ||
+                failedBreedTrackIds.current.has(trackId)
+              ) {
+                return false;
+              }
+
+              const cachedPrediction =
+                breedPredictionsByTrackId.current[trackId];
+              const retryState = breedRetryStateByTrackId.current[trackId];
+
+              return (
+                cachedPrediction !== undefined &&
+                cachedPrediction.confidence < MINIMUM_LIVE_BREED_CONFIDENCE &&
+                retryState !== undefined &&
+                retryState.classificationAttempts <
+                  MAXIMUM_LIVE_BREED_CLASSIFICATION_ATTEMPTS &&
+                liveDetectionUpdateCount.current >=
+                  retryState.retryAfterDetectionUpdate
+              );
+            })
+          : undefined;
+
+      const nextDetection = unclassifiedDetection ?? retryDetection;
+
       if (nextDetection?.trackId === undefined) {
         return;
       }
+
+      const previousRetryState =
+        breedRetryStateByTrackId.current[nextDetection.trackId];
+
+      breedRetryStateByTrackId.current[nextDetection.trackId] = {
+        classificationAttempts:
+          (previousRetryState?.classificationAttempts ?? 0) + 1,
+
+        // The result handler unlocks a later attempt only if the best
+        // prediction remains uncertain.
+        retryAfterDetectionUpdate: Number.POSITIVE_INFINITY,
+      };
 
       const request: LiveBreedClassificationRequest = {
         requestId: nextBreedClassificationRequestId.current,
@@ -253,11 +332,41 @@ export default function CameraScreen() {
         return;
       }
 
-      const label = breedLabels[result.prediction.classId] ?? "Unknown breed";
-
-      breedPredictionsByTrackId.current[result.trackId] = {
+      const candidatePrediction: CachedLiveBreedPrediction = {
         ...result.prediction,
-        label,
+        label: breedLabels[result.prediction.classId] ?? "Unknown breed",
+      };
+
+      const cachedPrediction =
+        breedPredictionsByTrackId.current[result.trackId];
+
+      // A retry must not replace a stronger earlier prediction.
+      const bestPrediction =
+        cachedPrediction !== undefined &&
+        cachedPrediction.confidence >= candidatePrediction.confidence
+          ? cachedPrediction
+          : candidatePrediction;
+
+      breedPredictionsByTrackId.current[result.trackId] = bestPrediction;
+      setDisplayedBreedPredictions({
+        ...breedPredictionsByTrackId.current,
+      });
+
+      const currentRetryState =
+        breedRetryStateByTrackId.current[result.trackId];
+      const classificationAttempts =
+        currentRetryState?.classificationAttempts ?? 1;
+      const shouldRetry =
+        bestPrediction.confidence < MINIMUM_LIVE_BREED_CONFIDENCE &&
+        classificationAttempts < MAXIMUM_LIVE_BREED_CLASSIFICATION_ATTEMPTS;
+
+      breedRetryStateByTrackId.current[result.trackId] = {
+        classificationAttempts,
+
+        // Eligibility does not override first-pass priority for new dogs.
+        retryAfterDetectionUpdate: shouldRetry
+          ? liveDetectionUpdateCount.current + LIVE_BREED_RETRY_DELAY_UPDATES
+          : Number.POSITIVE_INFINITY,
       };
     },
     [breedClassificationRequest],
@@ -268,6 +377,8 @@ export default function CameraScreen() {
   useEffect(() => {
     liveDetectionTracker.current = createLiveDetectionTrackerState();
     breedPredictionsByTrackId.current = {};
+    breedRetryStateByTrackId.current = {};
+    liveDetectionUpdateCount.current = 0;
     failedBreedTrackIds.current.clear();
     pendingBreedClassificationRequest.current = null;
 
@@ -305,17 +416,7 @@ export default function CameraScreen() {
     qualityPrioritization: "quality",
   });
 
-  // An empty delegate list deliberately starts with the CPU backend. This gives
-  // us a reliable baseline before testing Android GPU or NNAPI acceleration.
-  const mobileDetector = useTensorflowModel(mobileDetectorAsset, []);
   const detectorModel = mobileDetector.model;
-
-  // Use the same reliable CPU baseline for the classifier.
-  const mobileBreedClassifier = useTensorflowModel(
-    mobileBreedClassifierAsset,
-    [],
-  );
-
   const breedClassifierModel = mobileBreedClassifier.model;
 
   // Produce the detector's planar RGB tensor directly from the native frame.
@@ -559,6 +660,8 @@ export default function CameraScreen() {
         setLiveDetectionResult(null);
         liveDetectionTracker.current = createLiveDetectionTrackerState();
         breedPredictionsByTrackId.current = {};
+        breedRetryStateByTrackId.current = {};
+        liveDetectionUpdateCount.current = 0;
         failedBreedTrackIds.current.clear();
         pendingBreedClassificationRequest.current = null;
 
@@ -623,8 +726,8 @@ export default function CameraScreen() {
           height: photo.height,
         });
 
-        // The scan route reads this stored URI and sends the still image through
-        // the existing server-side detector/classifier pipeline.
+        // The scan route prefers server inference and uses these shared mobile
+        // models if the request fails or exceeds its timeout.
         router.push("/staticScan");
       } finally {
         // VisionCamera photos retain native memory until explicitly released.
@@ -636,8 +739,6 @@ export default function CameraScreen() {
       setIsScanning(false);
     }
   }
-
-  const liveDogCount = liveDetectionResult?.detections.length ?? 0;
 
   const livePreviewDetections = useMemo(() => {
     if (
@@ -667,11 +768,12 @@ export default function CameraScreen() {
       breedPrediction:
         detection.trackId === undefined
           ? null
-          : (breedPredictionsByTrackId.current[detection.trackId] ?? null),
+          : (displayedBreedPredictionsByTrackId[detection.trackId] ?? null),
     }));
   }, [
     cameraPreviewSize,
     deviceOrientation,
+    displayedBreedPredictionsByTrackId,
     interfaceOrientation,
     liveDetectionResult,
   ]);
@@ -719,6 +821,25 @@ export default function CameraScreen() {
     );
   }
 
+  // Device discovery can briefly be empty in release builds, so wait for the
+  // concrete back-camera device before mounting VisionCamera.
+  if (backCamera === undefined) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.blurCameraView}>
+          <Image
+            source={require("../assets/camera-placeholder.png")}
+            style={styles.placeholderImage}
+            resizeMode="cover"
+            blurRadius={18}
+          />
+          <View style={styles.placeholderOverlay} />
+          <Text style={styles.permissionTitle}>Preparing camera…</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.cameraView} onLayout={handleCameraViewLayout}>
@@ -726,7 +847,7 @@ export default function CameraScreen() {
             the existing photo capture flow. */}
         <Camera
           style={styles.camera}
-          device="back"
+          device={backCamera}
           isActive={isCameraActive}
           outputs={cameraOutputs}
           resizeMode="cover"
@@ -766,10 +887,10 @@ export default function CameraScreen() {
           />
           <Text style={styles.liveDetectorStatusText}>
             {mobileDetector.state === "loaded"
-              ? `Live detector ready · ${liveDogCount} detected`
+              ? "Scan ready"
               : mobileDetector.state === "error"
-                ? "Live detector unavailable"
-                : "Loading live detector..."}
+                ? "Scan unavailable"
+                : "Loading scanner..."}
           </Text>
         </View>
         <View style={styles.scanControls}>
