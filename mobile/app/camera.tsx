@@ -21,7 +21,13 @@ import {
 } from "react-native-vision-camera";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { LiveBreedOverlay, setCapturedPhoto } from "@/features/camera";
+import {
+  LiveBreedOverlay,
+  LIVE_BREED_RETRY_DELAY_UPDATES,
+  MAXIMUM_LIVE_BREED_CLASSIFICATION_ATTEMPTS,
+  MINIMUM_LIVE_BREED_CONFIDENCE,
+  setCapturedPhoto,
+} from "@/features/camera";
 import {
   decodeMobileDetectorOutput,
   mapDetectorDetectionsToFrame,
@@ -52,6 +58,11 @@ interface LiveBreedClassificationResult {
 
 interface CachedLiveBreedPrediction extends LiveBreedPrediction {
   label: string;
+}
+
+interface LiveBreedRetryState {
+  classificationAttempts: number;
+  retryAfterDetectionUpdate: number;
 }
 
 //// consts
@@ -111,6 +122,13 @@ export default function CameraScreen() {
     Record<number, CachedLiveBreedPrediction>
   >({});
 
+  // Retry state is also keyed by stable track ID, so each visible dog has its
+  // own attempt count and retry delay.
+  const breedRetryStateByTrackId = useRef<Record<number, LiveBreedRetryState>>(
+    {},
+  );
+  const liveDetectionUpdateCount = useRef(0);
+
   const failedBreedTrackIds = useRef(new Set<number>());
 
   const pendingBreedClassificationRequest =
@@ -136,6 +154,8 @@ export default function CameraScreen() {
   // Stabilization runs here after the Worklet transfers its small decoded result.
   const handleLiveDetectionResult = useCallback(
     (result: LiveFrameDetectionResult) => {
+      liveDetectionUpdateCount.current += 1;
+
       const trackerUpdate = stabilizeLiveFrameDetections(
         liveDetectionTracker.current,
         result,
@@ -161,6 +181,16 @@ export default function CameraScreen() {
 
         if (!activeTrackIds.has(trackId)) {
           delete breedPredictionsByTrackId.current[trackId];
+        }
+      }
+
+      for (const retryTrackId of Object.keys(
+        breedRetryStateByTrackId.current,
+      )) {
+        const trackId = Number(retryTrackId);
+
+        if (!activeTrackIds.has(trackId)) {
+          delete breedRetryStateByTrackId.current[trackId];
         }
       }
 
@@ -196,7 +226,9 @@ export default function CameraScreen() {
         return;
       }
 
-      const nextDetection = trackedDetections.find((detection) => {
+      // Every visible dog receives its first classification before uncertain
+      // predictions are allowed to consume another classifier pass.
+      const unclassifiedDetection = trackedDetections.find((detection) => {
         const trackId = detection.trackId;
 
         return (
@@ -206,9 +238,51 @@ export default function CameraScreen() {
         );
       });
 
+      const retryDetection =
+        unclassifiedDetection === undefined
+          ? trackedDetections.find((detection) => {
+              const trackId = detection.trackId;
+
+              if (
+                trackId === undefined ||
+                failedBreedTrackIds.current.has(trackId)
+              ) {
+                return false;
+              }
+
+              const cachedPrediction =
+                breedPredictionsByTrackId.current[trackId];
+              const retryState = breedRetryStateByTrackId.current[trackId];
+
+              return (
+                cachedPrediction !== undefined &&
+                cachedPrediction.confidence < MINIMUM_LIVE_BREED_CONFIDENCE &&
+                retryState !== undefined &&
+                retryState.classificationAttempts <
+                  MAXIMUM_LIVE_BREED_CLASSIFICATION_ATTEMPTS &&
+                liveDetectionUpdateCount.current >=
+                  retryState.retryAfterDetectionUpdate
+              );
+            })
+          : undefined;
+
+      const nextDetection = unclassifiedDetection ?? retryDetection;
+
       if (nextDetection?.trackId === undefined) {
         return;
       }
+
+      const previousRetryState =
+        breedRetryStateByTrackId.current[nextDetection.trackId];
+
+      breedRetryStateByTrackId.current[nextDetection.trackId] = {
+        classificationAttempts:
+          (previousRetryState?.classificationAttempts ?? 0) + 1,
+
+        // The result handler unlocks a later attempt only if the best
+        // prediction remains uncertain.
+        retryAfterDetectionUpdate: Number.POSITIVE_INFINITY,
+      };
 
       const request: LiveBreedClassificationRequest = {
         requestId: nextBreedClassificationRequestId.current,
@@ -250,11 +324,38 @@ export default function CameraScreen() {
         return;
       }
 
-      const label = breedLabels[result.prediction.classId] ?? "Unknown breed";
-
-      breedPredictionsByTrackId.current[result.trackId] = {
+      const candidatePrediction: CachedLiveBreedPrediction = {
         ...result.prediction,
-        label,
+        label: breedLabels[result.prediction.classId] ?? "Unknown breed",
+      };
+
+      const cachedPrediction =
+        breedPredictionsByTrackId.current[result.trackId];
+
+      // A retry must not replace a stronger earlier prediction.
+      const bestPrediction =
+        cachedPrediction !== undefined &&
+        cachedPrediction.confidence >= candidatePrediction.confidence
+          ? cachedPrediction
+          : candidatePrediction;
+
+      breedPredictionsByTrackId.current[result.trackId] = bestPrediction;
+
+      const currentRetryState =
+        breedRetryStateByTrackId.current[result.trackId];
+      const classificationAttempts =
+        currentRetryState?.classificationAttempts ?? 1;
+      const shouldRetry =
+        bestPrediction.confidence < MINIMUM_LIVE_BREED_CONFIDENCE &&
+        classificationAttempts < MAXIMUM_LIVE_BREED_CLASSIFICATION_ATTEMPTS;
+
+      breedRetryStateByTrackId.current[result.trackId] = {
+        classificationAttempts,
+
+        // Eligibility does not override first-pass priority for new dogs.
+        retryAfterDetectionUpdate: shouldRetry
+          ? liveDetectionUpdateCount.current + LIVE_BREED_RETRY_DELAY_UPDATES
+          : Number.POSITIVE_INFINITY,
       };
     },
     [breedClassificationRequest],
@@ -265,6 +366,8 @@ export default function CameraScreen() {
   useEffect(() => {
     liveDetectionTracker.current = createLiveDetectionTrackerState();
     breedPredictionsByTrackId.current = {};
+    breedRetryStateByTrackId.current = {};
+    liveDetectionUpdateCount.current = 0;
     failedBreedTrackIds.current.clear();
     pendingBreedClassificationRequest.current = null;
 
@@ -546,6 +649,8 @@ export default function CameraScreen() {
         setLiveDetectionResult(null);
         liveDetectionTracker.current = createLiveDetectionTrackerState();
         breedPredictionsByTrackId.current = {};
+        breedRetryStateByTrackId.current = {};
+        liveDetectionUpdateCount.current = 0;
         failedBreedTrackIds.current.clear();
         pendingBreedClassificationRequest.current = null;
 
