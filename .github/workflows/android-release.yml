@@ -17,9 +17,10 @@ jobs:
   build-android:
     name: Build signed Android APK
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 180
     env:
       EXPO_PUBLIC_API_URL: ${{ vars.EXPO_PUBLIC_API_URL }}
+      NODE_ENV: production
     defaults:
       run:
         shell: bash
@@ -108,13 +109,15 @@ jobs:
           ORG_GRADLE_PROJECT_WANCHAN_UPLOAD_KEY_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
         run: |
           chmod +x android/gradlew
-          android/gradlew -p android app:assembleRelease --no-daemon
+          android/gradlew -p android app:assembleRelease \
+            -PreactNativeArchitectures=arm64-v8a \
+            --no-daemon
 
       - name: Name and verify APK
         id: apk
         run: |
           version="$(node -p "require('./package.json').version")"
-          apk_name="wanchan-beam-v${version}-android.apk"
+          apk_name="wanchan-beam-v${version}-android-arm64.apk"
           apk_path="$GITHUB_WORKSPACE/dist/$apk_name"
           mkdir -p "$GITHUB_WORKSPACE/dist"
           cp android/app/build/outputs/apk/release/app-release.apk "$apk_path"
@@ -146,9 +149,12 @@ jobs:
           APK_PATH: ${{ steps.apk.outputs.path }}
         run: |
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            gh release upload "$GITHUB_REF_NAME" "$APK_PATH#Android APK" --clobber
+            gh release upload "$GITHUB_REF_NAME" \
+              "$APK_PATH#Android APK (64-bit ARM)" \
+              --clobber
           else
-            gh release create "$GITHUB_REF_NAME" "$APK_PATH#Android APK" \
+            gh release create "$GITHUB_REF_NAME" \
+              "$APK_PATH#Android APK (64-bit ARM)" \
               --verify-tag \
               --generate-notes \
               --title "WanChan Beam $GITHUB_REF_NAME"
