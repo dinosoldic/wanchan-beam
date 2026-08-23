@@ -3,7 +3,7 @@ import { File } from "expo-file-system";
 
 import type { DogDetectionResponse } from "@/types/detection";
 
-const DETECTION_TIMEOUT_MS = 10_000;
+const DETECTION_TIMEOUT_MS = 5000;
 
 function getApiUrl(): string {
   const apiUrl = process.env.EXPO_PUBLIC_API_URL;
