@@ -14,6 +14,7 @@ import {
 } from "react-native";
 import {
   Camera,
+  useCameraDevice,
   useCameraPermission,
   useFrameOutput,
   useOrientation,
@@ -98,6 +99,7 @@ export default function CameraScreen() {
   const { mobileDetector, mobileBreedClassifier } = useMobileInferenceModels();
   const { hasPermission, canRequestPermission, requestPermission } =
     useCameraPermission();
+  const backCamera = useCameraDevice("back");
 
   // Device orientation keeps inference pixels upright. Interface orientation
   // represents the React layout, which may remain portrait when rotation is locked.
@@ -121,6 +123,8 @@ export default function CameraScreen() {
   const breedPredictionsByTrackId = useRef<
     Record<number, CachedLiveBreedPrediction>
   >({});
+  const [displayedBreedPredictionsByTrackId, setDisplayedBreedPredictions] =
+    useState<Record<number, CachedLiveBreedPrediction>>({});
 
   // Retry state is also keyed by stable track ID, so each visible dog has its
   // own attempt count and retry delay.
@@ -199,6 +203,10 @@ export default function CameraScreen() {
           failedBreedTrackIds.current.delete(failedTrackId);
         }
       }
+
+      setDisplayedBreedPredictions({
+        ...breedPredictionsByTrackId.current,
+      });
 
       const pendingRequest = pendingBreedClassificationRequest.current;
 
@@ -340,6 +348,9 @@ export default function CameraScreen() {
           : candidatePrediction;
 
       breedPredictionsByTrackId.current[result.trackId] = bestPrediction;
+      setDisplayedBreedPredictions({
+        ...breedPredictionsByTrackId.current,
+      });
 
       const currentRetryState =
         breedRetryStateByTrackId.current[result.trackId];
@@ -729,8 +740,6 @@ export default function CameraScreen() {
     }
   }
 
-  const liveDogCount = liveDetectionResult?.detections.length ?? 0;
-
   const livePreviewDetections = useMemo(() => {
     if (
       liveDetectionResult === null ||
@@ -759,11 +768,12 @@ export default function CameraScreen() {
       breedPrediction:
         detection.trackId === undefined
           ? null
-          : (breedPredictionsByTrackId.current[detection.trackId] ?? null),
+          : (displayedBreedPredictionsByTrackId[detection.trackId] ?? null),
     }));
   }, [
     cameraPreviewSize,
     deviceOrientation,
+    displayedBreedPredictionsByTrackId,
     interfaceOrientation,
     liveDetectionResult,
   ]);
@@ -811,6 +821,25 @@ export default function CameraScreen() {
     );
   }
 
+  // Device discovery can briefly be empty in release builds, so wait for the
+  // concrete back-camera device before mounting VisionCamera.
+  if (backCamera === undefined) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.blurCameraView}>
+          <Image
+            source={require("../assets/camera-placeholder.png")}
+            style={styles.placeholderImage}
+            resizeMode="cover"
+            blurRadius={18}
+          />
+          <View style={styles.placeholderOverlay} />
+          <Text style={styles.permissionTitle}>Preparing camera…</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.cameraView} onLayout={handleCameraViewLayout}>
@@ -818,7 +847,7 @@ export default function CameraScreen() {
             the existing photo capture flow. */}
         <Camera
           style={styles.camera}
-          device="back"
+          device={backCamera}
           isActive={isCameraActive}
           outputs={cameraOutputs}
           resizeMode="cover"
@@ -858,10 +887,10 @@ export default function CameraScreen() {
           />
           <Text style={styles.liveDetectorStatusText}>
             {mobileDetector.state === "loaded"
-              ? "Live detector ready"
+              ? "Scan ready"
               : mobileDetector.state === "error"
-                ? "Live detector unavailable"
-                : "Loading live detector..."}
+                ? "Scan unavailable"
+                : "Loading scanner..."}
           </Text>
         </View>
         <View style={styles.scanControls}>

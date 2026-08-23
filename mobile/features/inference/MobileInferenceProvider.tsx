@@ -3,13 +3,12 @@ import {
   type PropsWithChildren,
   useContext,
 } from "react";
-import {
-  useTensorflowModel,
-  type TensorflowPlugin,
-} from "react-native-fast-tflite";
+import type { TensorflowPlugin } from "react-native-fast-tflite";
 
 import mobileBreedClassifierAsset from "@/generated-assets/models/mobile-breed-classifier.tflite";
 import mobileDetectorAsset from "@/generated-assets/models/mobile-detector.tflite";
+
+import { useBundledTensorflowModel } from "./useBundledTensorflowModel";
 
 interface MobileInferenceContextValue {
   mobileDetector: TensorflowPlugin;
@@ -24,10 +23,9 @@ export function MobileInferenceProvider({ children }: PropsWithChildren) {
   // Keeping both models above the router lets live and static inference share
   // one native model instance instead of loading another copy per screen.
   // An empty delegate list keeps the tested CPU baseline on Android and iOS.
-  const mobileDetector = useTensorflowModel(mobileDetectorAsset, []);
-  const mobileBreedClassifier = useTensorflowModel(
+  const mobileDetector = useBundledTensorflowModel(mobileDetectorAsset);
+  const mobileBreedClassifier = useBundledTensorflowModel(
     mobileBreedClassifierAsset,
-    [],
   );
 
   return (
