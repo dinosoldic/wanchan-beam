@@ -23,6 +23,18 @@ one end-to-end project. Point the live camera at one or more dogs for private
 on-device detection, or scan a saved photo through the more accurate server
 pipeline with an automatic on-device fallback.
 
+<p align="center"><strong>Live scan · One dog</strong></p>
+
+<!-- Replace with the GitHub-hosted live1 video attachment URL. -->
+
+<p align="center"><strong>Live scan · Multiple dogs</strong></p>
+
+<!-- Replace with the GitHub-hosted live2 video attachment URL. -->
+
+<p align="center"><strong>Photo scan</strong></p>
+
+<!-- Replace with the GitHub-hosted scan video attachment URL. -->
+
 ## Download
 
 <p align="center">
