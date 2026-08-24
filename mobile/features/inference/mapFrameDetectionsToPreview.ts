@@ -29,8 +29,7 @@ export function mapFrameDetectionsToPreview(
     );
   }
 
-  // VisionCamera's "cover" mode enlarges the oriented frame until it fills
-  // the entire preview. The excess content is cropped equally on each side.
+  // Reproduce VisionCamera's centered "cover" crop.
   const scale = Math.max(
     previewWidth / result.frame.width,
     previewHeight / result.frame.height,
@@ -65,7 +64,7 @@ export function mapFrameDetectionsToPreview(
       previewHeight,
     );
 
-    // A detection may be completely outside the visible cropped region.
+    // Skip detections outside the visible crop.
     if (x2 <= x1 || y2 <= y1) {
       continue;
     }

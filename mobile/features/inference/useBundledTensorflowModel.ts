@@ -28,6 +28,7 @@ export function useBundledTensorflowModel(
           throw new Error("Bundled TFLite model has no local file URI.");
         }
 
+        // Keep the tested CPU path instead of enabling a platform delegate.
         const model = await loadTensorflowModel({ url: asset.localUri }, []);
 
         if (!cancelled) {

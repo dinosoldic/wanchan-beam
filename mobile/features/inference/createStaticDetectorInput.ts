@@ -101,6 +101,7 @@ export async function createStaticDetectorInput(
       );
     }
 
+    // Match the mobile detector's centered 544x544 letterbox.
     const scale = Math.min(
       DETECTOR_INPUT_SIZE / originalWidth,
       DETECTOR_INPUT_SIZE / originalHeight,
@@ -139,6 +140,7 @@ export async function createStaticDetectorInput(
 
     detectorValues.fill(DETECTOR_PADDING_VALUE);
 
+    // LiteRT expects normalized RGB planes (NCHW), not interleaved pixels.
     for (let y = 0; y < resizedHeight; y += 1) {
       for (let x = 0; x < resizedWidth; x += 1) {
         const sourceIndex =

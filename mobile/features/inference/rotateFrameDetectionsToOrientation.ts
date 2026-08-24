@@ -53,8 +53,7 @@ export function rotateFrameDetectionsToOrientation(
   sourceOrientation: CameraOrientation,
   targetOrientation: CameraOrientation,
 ): LiveFrameDetectionResult {
-  // A device-oriented frame must be rotated by the difference between the
-  // physical device orientation and the currently displayed UI orientation.
+  // Rotate by the difference between camera and UI orientation.
   const quarterTurns = ((ORIENTATION_QUARTER_TURNS[sourceOrientation] -
     ORIENTATION_QUARTER_TURNS[targetOrientation] +
     4) %

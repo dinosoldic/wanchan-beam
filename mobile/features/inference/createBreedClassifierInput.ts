@@ -62,7 +62,7 @@ export function createBreedClassifierInput(
     );
   }
 
-  // Match the server and training pipeline by rounding the crop outwards.
+  // Round outward to match training and server crops.
   const cropLeft = clamp(Math.floor(detectionBox.x1), 0, DETECTOR_INPUT_SIZE);
   const cropTop = clamp(Math.floor(detectionBox.y1), 0, DETECTOR_INPUT_SIZE);
   const cropRight = clamp(Math.ceil(detectionBox.x2), 0, DETECTOR_INPUT_SIZE);
@@ -114,7 +114,7 @@ export function createBreedClassifierInput(
     );
 
     for (let resizedY = 0; resizedY < resizedHeight; resizedY += 1) {
-      // Pixel-center mapping matches standard bilinear image resizing.
+      // Map pixel centers for bilinear resizing.
       const sourceY = clamp(
         ((resizedY + 0.5) * cropHeight) / resizedHeight - 0.5,
         0,

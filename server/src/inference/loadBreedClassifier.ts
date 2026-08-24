@@ -42,6 +42,7 @@ function shapesMatch(
 }
 
 function parseLabels(contents: string): readonly string[] {
+  // Class IDs are array indexes, so label ordering is part of the model contract.
   const parsedLabels: unknown = JSON.parse(contents);
 
   if (!Array.isArray(parsedLabels)) {
@@ -127,6 +128,7 @@ async function createBreedClassifierAssets(): Promise<BreedClassifierAssets> {
 }
 
 export function loadBreedClassifier(): Promise<BreedClassifierAssets> {
+  // Cache model and labels together so they can never come from different loads.
   assetsPromise ??= createBreedClassifierAssets();
 
   return assetsPromise;

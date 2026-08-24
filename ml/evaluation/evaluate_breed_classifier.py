@@ -287,8 +287,7 @@ def evaluate_model(
                 output_logits = model(batch_images)
                 loss = loss_function(output_logits, batch_breed_ids)
 
-            # Softmax converts logits into the same confidence values used by
-            # the server while preserving the predicted class ordering.
+            # Match the confidence values used by the server.
             output_probabilities = output_logits.float().softmax(dim=1)
 
             top_two_confidences, top_two_breed_ids = output_probabilities.topk(

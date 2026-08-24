@@ -1,3 +1,5 @@
+"""Train the MobileNetV3 breed-classification head from scratch."""
+
 from collections import Counter
 from collections.abc import Iterable
 from pathlib import Path
@@ -95,8 +97,7 @@ def train_one_epoch(
 
     model.train()
 
-    # Frozen modules always retain their pretrained BatchNorm statistics. When
-    # enabled, BatchNorm inside an unfrozen module remains in training mode.
+    # Keep frozen BatchNorm statistics while training unfrozen modules.
     for module in model.modules():
         if not isinstance(module, nn.BatchNorm2d):
             continue
@@ -351,8 +352,7 @@ def load_training_checkpoint(
 
     sampler_generator_state = checkpoint.get("sampler_generator_state")
     if sampler_generator is not None and sampler_generator_state is not None:
-        # Checkpoints loaded onto CUDA may also move this byte tensor, but a
-        # CPU-based sampler generator requires its state to remain on the CPU.
+        # The CPU sampler requires its generator state on the CPU.
         sampler_generator.set_state(sampler_generator_state.cpu())
 
     best_validation_loss = float(
@@ -426,7 +426,7 @@ def apply_cutmix(
     image_height = batch_images.size(2)
     image_width = batch_images.size(3)
 
-    # A desired secondary-label weight of (1 - lambda) becomes the rectangle area.
+    # Convert the secondary label weight into rectangle area.
     cut_ratio = (1.0 - sampled_weight) ** 0.5
     cut_width = int(image_width * cut_ratio)
     cut_height = int(image_height * cut_ratio)
@@ -456,7 +456,7 @@ def apply_cutmix(
 
     mixed_images = batch_images.clone()
 
-    # Copy the same rectangular location from each shuffled image.
+    # Copy one rectangle from each shuffled image.
     mixed_images[:, :, y1:y2, x1:x2] = batch_images[
         shuffled_indices,
         :,
@@ -467,7 +467,7 @@ def apply_cutmix(
     patch_area = (x2 - x1) * (y2 - y1)
     total_image_area = image_width * image_height
 
-    # Edge clipping can shrink the rectangle, so use its real area for the labels.
+    # Use the clipped rectangle area for the final label weights.
     primary_weight = 1.0 - patch_area / total_image_area
 
     return (
@@ -521,11 +521,11 @@ def main() -> None:
         image_augmentation=training_augmentation,
     )
 
-    # Use a fixed random seed for the sampler to ensure reproducibility across runs.
+    # Keep the sampler reproducible across runs.
     sampler_generator = torch.Generator()
     sampler_generator.manual_seed(RANDOM_SEED)
 
-    # balance the training dataset by giving rare breeds a higher sampling probability
+    # give rare breeds a higher sampling probability
     train_sample_weights = build_balanced_sample_weights(train_paths)
     train_sampler = WeightedRandomSampler(
         weights=train_sample_weights,
@@ -546,7 +546,7 @@ def main() -> None:
 
     loss_function = nn.CrossEntropyLoss()
 
-    # Validation uses the official split without random augmentation
+    # use the official validation split without augmentation
     validation_paths = load_split_paths(VALIDATION_SPLIT_PATH)
 
     validation_dataset = TsinghuaDogsDataset(
@@ -633,7 +633,7 @@ def main() -> None:
         print(f"Validation loss: {validation_loss:.4f}")
         print(f"Validation accuracy: {validation_accuracy:.2%}")
 
-        # Keep a separate copy of the model with the lowest validation loss.
+        # keep the lowest-loss checkpoint separately
         if validation_loss < best_validation_loss:
             best_validation_loss = validation_loss
 

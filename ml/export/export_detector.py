@@ -1,3 +1,5 @@
+"""Export the selected server detector checkpoint to ONNX."""
+
 from pathlib import Path
 
 from ultralytics import YOLO

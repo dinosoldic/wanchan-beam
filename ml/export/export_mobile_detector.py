@@ -1,3 +1,5 @@
+"""Export the nano detector for on-device LiteRT inference."""
+
 import platform
 from pathlib import Path
 

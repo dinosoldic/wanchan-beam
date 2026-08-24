@@ -20,9 +20,7 @@ const MobileInferenceContext = createContext<
 >(undefined);
 
 export function MobileInferenceProvider({ children }: PropsWithChildren) {
-  // Keeping both models above the router lets live and static inference share
-  // one native model instance instead of loading another copy per screen.
-  // An empty delegate list keeps the tested CPU baseline on Android and iOS.
+  // Load both models once so every route shares the same native instances.
   const mobileDetector = useBundledTensorflowModel(mobileDetectorAsset);
   const mobileBreedClassifier = useBundledTensorflowModel(
     mobileBreedClassifierAsset,

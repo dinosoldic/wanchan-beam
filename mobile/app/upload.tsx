@@ -16,6 +16,7 @@ import { useMobileInferenceModels } from "@/features/inference";
 import { detectDogs } from "@/services/DetectionService";
 import type { DogDetectionResponse } from "@/types/detection";
 
+// Keep the scan animation readable even when inference finishes immediately.
 const MINIMUM_SCAN_DURATION_MS = 2000;
 
 export default function UploadScreen() {

@@ -78,12 +78,11 @@ export async function letterboxBreedCrop(
     failOn: "error",
   }).metadata();
 
-  // The detector also uses auto-oriented dimensions, so its coordinates
-  // refer to this same image orientation.
+  // Detector coordinates use this same auto-oriented image.
   const originalWidth = metadata.autoOrient.width;
   const originalHeight = metadata.autoOrient.height;
 
-  // Round outward to avoid trimming part of the detected dog.
+  // Round outward so the crop keeps the complete dog.
   const cropLeft = clamp(Math.floor(box.x1), 0, originalWidth);
   const cropTop = clamp(Math.floor(box.y1), 0, originalHeight);
   const cropRight = clamp(Math.ceil(box.x2), 0, originalWidth);
@@ -98,7 +97,7 @@ export async function letterboxBreedCrop(
 
   const scale = Math.min(INPUT_SIZE / cropWidth, INPUT_SIZE / cropHeight);
 
-  // Match Python's round() behavior from the training loader.
+  // Match Python rounding from the training loader.
   const resizedWidth = Math.max(1, roundHalfToEven(cropWidth * scale));
   const resizedHeight = Math.max(1, roundHalfToEven(cropHeight * scale));
 

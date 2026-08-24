@@ -92,8 +92,7 @@ export function processBreedClassifierOutput(
 
       maximumLogit = Math.max(maximumLogit, logit);
 
-      // Strict comparisons preserve lower class IDs when logits tie,
-      // because classes are visited in ascending ID order.
+      // Strict comparison keeps the lower ID when logits tie.
       if (logit > topOneLogit) {
         topTwoId = topOneId;
         topTwoLogit = topOneLogit;
@@ -110,7 +109,7 @@ export function processBreedClassifierOutput(
       throw new Error(`Could not select two breeds for batch ${batchIndex}`);
     }
 
-    // Subtracting the maximum keeps exponentials within a safe range.
+    // Subtract the maximum before softmax for numerical stability.
     let softmaxDenominator = 0;
 
     for (let classId = 0; classId < BREED_COUNT; classId += 1) {

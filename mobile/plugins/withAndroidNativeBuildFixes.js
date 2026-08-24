@@ -45,7 +45,7 @@ subprojects { subproject ->
     if (subproject.plugins.hasPlugin('com.android.library')) {
       wanchanNativeLibraryOwners.each { libraryName, ownerProject ->
         if (subproject.name != ownerProject) {
-          // Wrappers link shared runtimes but only the owning module packages them.
+          // Only the owning module packages each shared runtime.
           subproject.android.packagingOptions.exclude "**/\${libraryName}"
         }
       }

@@ -46,8 +46,7 @@ export function mapDetectorDetectionsToFrame(
     );
   }
 
-  // The GPU resizer counter-rotates frames into their intended presentation.
-  // Left/right orientations therefore swap the physical buffer dimensions.
+  // Left and right orientations swap the physical frame dimensions.
   const swapsDimensions = orientation === "left" || orientation === "right";
 
   const frameWidth = swapsDimensions ? physicalFrameHeight : physicalFrameWidth;
@@ -90,7 +89,7 @@ export function mapDetectorDetectionsToFrame(
       frameHeight,
     );
 
-    // Discard boxes that existed entirely inside detector padding.
+    // Discard boxes that only covered detector padding.
     if (x2 <= x1 || y2 <= y1) {
       continue;
     }
@@ -100,7 +99,7 @@ export function mapDetectorDetectionsToFrame(
       label: detection.label,
       confidence: detection.confidence,
 
-      // Keep the original 544x544 coordinates for breed classification.
+      // Keep detector coordinates for the breed crop.
       detectorBox: detection.box,
 
       box: {

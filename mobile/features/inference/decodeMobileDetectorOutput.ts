@@ -18,7 +18,7 @@ export interface LiveDogDetection {
   label: "dog";
   confidence: number;
 
-  // These coordinates still refer to the square 544x544 detector input.
+  // Boxes still use the square detector coordinates.
   box: LiveDetectionBox;
 }
 
@@ -51,7 +51,7 @@ export function decodeMobileDetectorOutput(
     const confidence = values[offset + 4]!;
     const classId = Math.round(values[offset + 5]!);
 
-    // Zero-filled rows, other COCO classes, and weak predictions are ignored.
+    // Ignore empty rows, other classes, and weak detections.
     if (classId !== DOG_CLASS_ID || confidence < DOG_CONFIDENCE_THRESHOLD) {
       continue;
     }
@@ -66,7 +66,7 @@ export function decodeMobileDetectorOutput(
       continue;
     }
 
-    // The end-to-end model reports coordinates in detector-input pixels.
+    // The end-to-end export returns detector-input pixels.
     const x1 = Math.min(Math.max(rawX1, 0), DETECTOR_INPUT_SIZE);
     const y1 = Math.min(Math.max(rawY1, 0), DETECTOR_INPUT_SIZE);
     const x2 = Math.min(Math.max(rawX2, 0), DETECTOR_INPUT_SIZE);

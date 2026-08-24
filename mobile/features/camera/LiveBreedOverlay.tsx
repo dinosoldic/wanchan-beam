@@ -80,8 +80,7 @@ function getDirectLabelPosition(
   const centerY = (box.y1 + box.y2) / 2;
   const dogWidth = Math.max(box.x2 - box.x1, 1);
 
-  // Keep the pill compact for smaller dogs while leaving enough room for
-  // breed names to wrap onto two lines.
+  // Keep labels compact but leave room for two lines.
   const labelWidth = Math.min(
     LABEL_WIDTH,
     Math.max(dogWidth, 88),
@@ -155,8 +154,7 @@ function buildCrowdedCallouts(
     Math.max(previewWidth - EDGE_PADDING * 2, 1),
   );
 
-  // Reserve a stable edge slot for every dog, but leave its label hidden until
-  // that track reaches the front of the asynchronous classification queue.
+  // Reserve each edge slot while its breed is still queued.
   const anchors = detections
     .map(
       (detection, index): LiveBreedAnchor => ({
@@ -223,8 +221,7 @@ export function LiveBreedOverlay({
 }: LiveBreedOverlayProps) {
   const [useCrowdedLayout, setUseCrowdedLayout] = useState(false);
 
-  // Enter edge-callout mode at four dogs, but do not leave until only two
-  // remain. This hysteresis prevents flicker around the crowded threshold.
+  // Use separate enter and exit counts to prevent layout flicker.
   useEffect(() => {
     setUseCrowdedLayout((currentLayout) => {
       if (detections.length >= CROWDED_ENTER_COUNT) {

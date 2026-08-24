@@ -25,8 +25,7 @@ SAMPLE_IMAGE_PATH = ML_ROOT / "data" / "samples" / "test-dogs.png"
 
 INPUT_SIZE = 544
 
-# These tolerances allow harmless floating-point drift while still detecting
-# a meaningful conversion or output-decoding problem.
+# Allow harmless drift but still catch conversion errors.
 MAX_CONFIDENCE_DIFFERENCE = 0.05
 MAX_COORDINATE_DIFFERENCE = 2.0
 MINIMUM_BOX_IOU = 0.99
@@ -82,8 +81,7 @@ def run_detector(model_path: Path) -> list[DogDetection]:
 
     retained_detections = suppress_duplicate_detections(raw_detections)
 
-    # The sample dogs are arranged horizontally, so center-X gives both
-    # backends a stable spatial order independent of confidence ranking.
+    # Sort by center-X so confidence changes do not reorder the dogs.
     return sorted(
         retained_detections,
         key=lambda detection: (detection.box[0] + detection.box[2]) / 2.0,

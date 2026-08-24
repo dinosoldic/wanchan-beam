@@ -28,6 +28,7 @@ export async function letterboxImage(input: Buffer): Promise<LetterboxedImage> {
   const originalWidth = metadata.autoOrient.width;
   const originalHeight = metadata.autoOrient.height;
 
+  // Preserve aspect ratio and center the image exactly like YOLO export.
   const scale = Math.min(
     INPUT_SIZE / originalWidth,
     INPUT_SIZE / originalHeight,

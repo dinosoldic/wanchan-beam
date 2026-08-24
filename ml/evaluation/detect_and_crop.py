@@ -1,3 +1,5 @@
+"""Preview detector crops before passing them to the breed classifier."""
+
 import argparse
 import json
 import math
