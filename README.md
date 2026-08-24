@@ -1,3 +1,5 @@
+
+
 <div align="center">
   <img src="mobile/assets/logo/splash-icon.png" alt="WanChan Beam logo" width="190" />
 
@@ -22,6 +24,8 @@ WanChan Beam combines computer vision, mobile development, and a hosted API in
 one end-to-end project. Point the live camera at one or more dogs for private
 on-device detection, or scan a saved photo through the more accurate server
 pipeline with an automatic on-device fallback.
+
+https://github.com/user-attachments/assets/36b1bd1c-0c7f-4507-ad5e-f02b687c4325
 
 ## Download
 
