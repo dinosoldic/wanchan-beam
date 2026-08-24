@@ -3,7 +3,7 @@
     "name": "WanChan Beam",
     "slug": "wanchan-beam",
     "platforms": ["ios", "android"],
-    "version": "1.0.1",
+    "version": "1.0.2",
     "orientation": "default",
     "icon": "./assets/logo/logo.png",
     "scheme": "wanchanbeam",
@@ -17,7 +17,7 @@
     },
     "android": {
       "package": "com.dinosoldic.wanchanbeam",
-      "versionCode": 2,
+      "versionCode": 3,
       "predictiveBackGestureEnabled": false,
       "permissions": ["android.permission.CAMERA"],
       "adaptiveIcon": {

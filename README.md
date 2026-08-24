@@ -12,7 +12,7 @@
   </p>
 
   <p>
-    <img src="https://img.shields.io/badge/version-1.0.1-F3A58F" alt="Version 1.0.1" />
+    <img src="https://img.shields.io/badge/version-1.0.2-F3A58F" alt="Version 1.0.2" />
     <img src="https://img.shields.io/badge/Android-tested-5C8FB8?logo=android&logoColor=white" alt="Android tested" />
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-062653" alt="AGPL-3.0 license" /></a>
   </p>
