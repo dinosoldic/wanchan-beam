@@ -11,6 +11,7 @@ const modelPath = process.env.DETECTOR_MODEL_PATH ?? defaultModelPath;
 let sessionPromise: Promise<ort.InferenceSession> | undefined;
 
 export function loadDetector(): Promise<ort.InferenceSession> {
+  // ONNX sessions are expensive and safe to reuse between requests.
   sessionPromise ??= ort.InferenceSession.create(modelPath, {
     executionProviders: ["cpu"],
     graphOptimizationLevel: "all",

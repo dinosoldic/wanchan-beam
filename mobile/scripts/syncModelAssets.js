@@ -23,6 +23,7 @@ const mobileAssets = mobileAssetNames.map((assetName) => ({
   generatedPath: path.join(generatedModelDirectory, assetName),
 }));
 
+// models/v1 is the source of truth; generated-assets only feeds Metro.
 // Validate every source before replacing any generated asset.
 for (const asset of mobileAssets) {
   if (!fs.existsSync(asset.sourcePath)) {

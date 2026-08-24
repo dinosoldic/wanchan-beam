@@ -39,7 +39,7 @@ export async function buildApp(
     app.addSchema(schema);
   }
 
-  // load models
+  // Fail startup early if either model package is missing or invalid.
   await Promise.all([loadDetector(), loadBreedClassifier()]);
 
   await app.register(multipart, {

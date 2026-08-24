@@ -14,12 +14,12 @@ export async function classifyDetectedDogs(
   imageBuffer: Buffer,
   detections: readonly DogDetection[],
 ): Promise<ClassifiedDogDetection[]> {
-  // An empty crop batch is invalid and there is nothing to classify.
+  // Skip the classifier when no dogs were found.
   if (detections.length === 0) {
     return [];
   }
 
-  // Promise.all preserves detection order while preparing the crops concurrently.
+  // Prepare crops together without changing detection order.
   const crops = await Promise.all(
     detections.map(async ({ box }) => {
       const { pixels } = await letterboxBreedCrop(imageBuffer, box);
@@ -28,12 +28,12 @@ export async function classifyDetectedDogs(
     }),
   );
 
-  // Run one classifier call for the complete crop batch.
+  // Run one classifier call for the complete batch.
   // console.log(`Classifying breeds for ${crops.length} detected dog(s)...`);
 
   const predictions = await classifyBreeds(crops);
 
-  // Log both ranked predictions while monitoring classifier behavior.
+  // Optional output for checking both breed predictions.
   // console.table(
   //   predictions.map(([firstBreed, secondBreed], index) => ({
   //     dog: index + 1,

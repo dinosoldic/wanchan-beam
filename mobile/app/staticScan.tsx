@@ -20,6 +20,7 @@ import { useMobileInferenceModels } from "@/features/inference";
 import { detectDogs } from "@/services/DetectionService";
 import type { DogDetectionResponse } from "@/types/detection";
 
+// Keep the scan animation readable even when inference finishes immediately.
 const MINIMUM_SCAN_DURATION_MS = 2000;
 
 export default function StaticScanScreen() {
@@ -102,6 +103,7 @@ export default function StaticScanScreen() {
   ]);
 
   useEffect(() => {
+    // The captured photo is temporary and should not survive this route.
     const unsubscribe = navigation.addListener("beforeRemove", () => {
       void discardCapturedPhoto().catch((error) => {
         console.error("Captured photo cleanup failed:", error);

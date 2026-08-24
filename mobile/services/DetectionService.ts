@@ -14,6 +14,8 @@ export async function detectDogs(
   imageUri: string,
   models: DetectionModels,
 ): Promise<DogDetectionResponse> {
+  // Prefer the larger server models, then keep photo scanning available with
+  // the bundled models when the request fails or times out.
   try {
     return await detectDogsRemotely(imageUri);
   } catch (remoteError) {

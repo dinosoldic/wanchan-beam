@@ -36,7 +36,7 @@ export async function detectDogs(
 
   const detections = processDetectorOutput(output, transform);
 
-  // Crop every detected dog and classify all crops in one batch.
+  // Crop every dog and classify the crops together.
   const classifiedDetections = await classifyDetectedDogs(
     imageBuffer,
     detections,

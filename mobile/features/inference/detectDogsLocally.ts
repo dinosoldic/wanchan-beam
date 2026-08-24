@@ -36,6 +36,7 @@ function mapDetectorBoxToOriginalImage(
   box: LiveDetectionBox,
   transform: StaticDetectorTransform,
 ): LiveDetectionBox | null {
+  // Remove detector padding before restoring original photo coordinates.
   const horizontalScale = transform.originalWidth / transform.resizedWidth;
   const verticalScale = transform.originalHeight / transform.resizedHeight;
 
@@ -104,6 +105,7 @@ function decodeTopTwoBreedPredictions(
   const maximumLogit = logits[firstClassId]!;
   let exponentialSum = 0;
 
+  // Subtract the maximum logit to keep the softmax numerically stable.
   for (const logit of logits) {
     exponentialSum += Math.exp(logit - maximumLogit);
   }
@@ -156,8 +158,7 @@ export async function detectDogsLocally(
 
   const detections: DogDetection[] = [];
 
-  // Static inference has no frame deadline, so classify sequentially to keep
-  // device memory bounded when one photo contains many dogs.
+  // Classify sequentially to limit memory on crowded photos.
   for (const detection of detectorSpaceDetections) {
     const mappedBox = mapDetectorBoxToOriginalImage(detection.box, transform);
 

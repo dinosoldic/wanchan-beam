@@ -222,9 +222,7 @@ def inspect_dataset(
 
     invalid_body_examples: list[tuple[Path, BoundingBox, BoundingBox]] = []
 
-    # This diagnostic uses XML-declared dimensions. Some low-resolution XML
-    # files have width and height swapped, so the training loader must validate
-    # boxes against the dimensions of the decoded JPEG instead.
+    # Some XML files swap dimensions, so training checks the decoded JPEG.
     splits = (
         ("training", train_paths, train_breed_counts),
         ("validation", validation_paths, validation_breed_counts),

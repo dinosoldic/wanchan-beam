@@ -18,10 +18,10 @@ function normalizeChannel(
   mean: number,
   standardDeviation: number,
 ): number {
-  // Match ToTensor: convert an RGB byte from [0, 255] into [0, 1].
+  // Match torchvision ToTensor scaling.
   const scaledValue = Math.fround(byteValue / 255);
 
-  // Match torchvision Normalize using float32 operations.
+  // Match torchvision Normalize in float32.
   const centeredValue = Math.fround(scaledValue - mean);
 
   return Math.fround(centeredValue / standardDeviation);

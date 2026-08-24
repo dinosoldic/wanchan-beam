@@ -74,10 +74,10 @@ const LIVE_FRAME_RESOLUTION = {
 
 const DETECTOR_INPUT_SIZE = 544;
 
-// Throttle inference without queueing frames.
+// Skip frames instead of queueing detector work.
 const LIVE_INFERENCE_INTERVAL_MS = 300;
 
-// Classify at most one unclassified track during this interval.
+// Process one breed crop every 400 ms.
 const BREED_CLASSIFICATION_INTERVAL_MS = 400;
 
 const DETECTOR_INPUT_BYTE_LENGTH =
@@ -101,8 +101,7 @@ export default function CameraScreen() {
     useCameraPermission();
   const backCamera = useCameraDevice("back");
 
-  // Device orientation keeps inference pixels upright. Interface orientation
-  // represents the React layout, which may remain portrait when rotation is locked.
+  // Keep frame pixels upright even when the UI stays portrait.
   const deviceOrientation = useOrientation("device");
   const interfaceOrientation = useOrientation("interface");
 
@@ -111,23 +110,21 @@ export default function CameraScreen() {
   const [isScanning, setIsScanning] = useState(false);
   const [liveDetectionResult, setLiveDetectionResult] =
     useState<LiveFrameDetectionResult | null>(null);
-  // Tracking history persists between inference updates without causing renders.
+  // Keep tracking state between updates without rerendering.
   const liveDetectionTracker = useRef(createLiveDetectionTrackerState());
   const [cameraPreviewSize, setCameraPreviewSize] = useState({
     width: 0,
     height: 0,
   });
 
-  // Classification is queued on React, consumed on the Worklet, and cached by
-  // stable track ID so a dog is not reclassified on every detector update.
+  // Queue classifier work and cache it by track ID.
   const breedPredictionsByTrackId = useRef<
     Record<number, CachedLiveBreedPrediction>
   >({});
   const [displayedBreedPredictionsByTrackId, setDisplayedBreedPredictions] =
     useState<Record<number, CachedLiveBreedPrediction>>({});
 
-  // Retry state is also keyed by stable track ID, so each visible dog has its
-  // own attempt count and retry delay.
+  // Keep retry timing separate for each track.
   const breedRetryStateByTrackId = useRef<Record<number, LiveBreedRetryState>>(
     {},
   );
@@ -155,7 +152,7 @@ export default function CameraScreen() {
     [],
   );
 
-  // Stabilization runs here after the Worklet transfers its small decoded result.
+  // Stabilize after transferring the decoded Worklet result.
   const handleLiveDetectionResult = useCallback(
     (result: LiveFrameDetectionResult) => {
       liveDetectionUpdateCount.current += 1;
@@ -177,7 +174,7 @@ export default function CameraScreen() {
         }
       }
 
-      // Remove cached results after their tracks have actually expired.
+      // Remove cached breeds only after tracks expire.
       for (const cachedTrackId of Object.keys(
         breedPredictionsByTrackId.current,
       )) {
@@ -219,7 +216,7 @@ export default function CameraScreen() {
           pendingBreedClassificationRequest.current = null;
           breedClassificationRequest.setBlocking(null);
         } else {
-          // Keep the pending request aligned with the track's latest box.
+          // Keep pending crops aligned with the latest box.
           const updatedRequest: LiveBreedClassificationRequest = {
             ...pendingRequest,
             detectorBox: currentPendingDetection.detectorBox,
@@ -234,8 +231,7 @@ export default function CameraScreen() {
         return;
       }
 
-      // Every visible dog receives its first classification before uncertain
-      // predictions are allowed to consume another classifier pass.
+      // Classify every new dog before retrying uncertain ones.
       const unclassifiedDetection = trackedDetections.find((detection) => {
         const trackId = detection.trackId;
 
@@ -287,8 +283,7 @@ export default function CameraScreen() {
         classificationAttempts:
           (previousRetryState?.classificationAttempts ?? 0) + 1,
 
-        // The result handler unlocks a later attempt only if the best
-        // prediction remains uncertain.
+        // Retry later only if the result stays uncertain.
         retryAfterDetectionUpdate: Number.POSITIVE_INFINITY,
       };
 
@@ -309,7 +304,7 @@ export default function CameraScreen() {
     (result: LiveBreedClassificationResult) => {
       const pendingRequest = pendingBreedClassificationRequest.current;
 
-      // Ignore a stale result produced before an orientation or route reset.
+      // Ignore results from before an orientation or route reset.
       if (
         pendingRequest === null ||
         pendingRequest.requestId !== result.requestId ||
@@ -340,7 +335,7 @@ export default function CameraScreen() {
       const cachedPrediction =
         breedPredictionsByTrackId.current[result.trackId];
 
-      // A retry must not replace a stronger earlier prediction.
+      // Do not replace a stronger earlier prediction.
       const bestPrediction =
         cachedPrediction !== undefined &&
         cachedPrediction.confidence >= candidatePrediction.confidence
@@ -363,7 +358,7 @@ export default function CameraScreen() {
       breedRetryStateByTrackId.current[result.trackId] = {
         classificationAttempts,
 
-        // Eligibility does not override first-pass priority for new dogs.
+        // New dogs still keep first-pass priority.
         retryAfterDetectionUpdate: shouldRetry
           ? liveDetectionUpdateCount.current + LIVE_BREED_RETRY_DELAY_UPDATES
           : Number.POSITIVE_INFINITY,
@@ -372,8 +367,7 @@ export default function CameraScreen() {
     [breedClassificationRequest],
   );
 
-  // A rotated frame uses a different coordinate system, invalidating every
-  // tracked box, pending crop request, and cached track-to-breed association.
+  // Rotation invalidates every tracked box and cached breed.
   useEffect(() => {
     liveDetectionTracker.current = createLiveDetectionTrackerState();
     breedPredictionsByTrackId.current = {};
@@ -391,8 +385,7 @@ export default function CameraScreen() {
     lastBreedClassificationTime,
   ]);
 
-  // React Native reports the final preview size after percentage-based layout
-  // has been resolved into physical screen coordinates.
+  // Read the final preview size after React Native resolves the layout.
   const handleCameraViewLayout = useCallback(
     ({
       nativeEvent: {
@@ -419,7 +412,7 @@ export default function CameraScreen() {
   const detectorModel = mobileDetector.model;
   const breedClassifierModel = mobileBreedClassifier.model;
 
-  // Produce the detector's planar RGB tensor directly from the native frame.
+  // Build the planar RGB tensor from the native frame.
   const liveFrameResizer = useResizer({
     width: DETECTOR_INPUT_SIZE,
     height: DETECTOR_INPUT_SIZE,
@@ -434,21 +427,20 @@ export default function CameraScreen() {
 
   const frameResizer = liveFrameResizer.resizer;
 
-  // Captures all frames but only processes up to 4 FPS.
+  // Run the detector at most once every 300 ms.
   const frameOutput = useFrameOutput({
     targetResolution: LIVE_FRAME_RESOLUTION,
     pixelFormat: "yuv",
     dropFramesWhileBusy: true,
 
-    // The resizer does not apply Frame.orientation metadata. Rotate the native
-    // buffer first so model pixels, detector boxes, and the preview are upright.
+    // Rotate before resizing so pixels and boxes stay upright.
     enablePhysicalBufferRotation: true,
 
     onFrame(frame) {
       "worklet";
 
       try {
-        // Frames are discarded until both asynchronous native resources are ready.
+        // Discard frames until both native resources are ready.
         if (frameResizer == null || detectorModel == null) {
           return;
         }
@@ -467,7 +459,7 @@ export default function CameraScreen() {
         try {
           const detectorInput = resizedFrame.getPixelBuffer();
 
-          // Reject an unexpected native tensor before it reaches the model.
+          // Reject an unexpected tensor before inference.
           if (detectorInput.byteLength !== DETECTOR_INPUT_BYTE_LENGTH) {
             throw new Error(
               `Expected ${DETECTOR_INPUT_BYTE_LENGTH} detector input bytes, ` +
@@ -475,8 +467,7 @@ export default function CameraScreen() {
             );
           }
 
-          // runSync keeps detectorInput valid until native inference has consumed
-          // it. This runs on the Worklet thread, not React's UI/JS thread.
+          // runSync keeps the input alive through native inference.
           const detectorOutputs = detectorModel.runSync([detectorInput]);
 
           if (detectorOutputs.length !== 1) {
@@ -498,7 +489,7 @@ export default function CameraScreen() {
             );
           }
 
-          // Decode model rows and remove boxes that describe the same physical dog.
+          // Decode rows and remove duplicate dog boxes.
           const detectorSpaceDetections = suppressDuplicateDetections(
             decodeMobileDetectorOutput(detectorOutput),
           );
@@ -524,8 +515,7 @@ export default function CameraScreen() {
               classificationRequest,
             );
 
-            // If the requested dog moved too far, keep the request pending. React will
-            // update its detectorBox when the latest tracked detections arrive.
+            // Wait for React to update a crop when the dog moved too far.
             if (selectedDetection !== null) {
               lastProcessedBreedRequestId.setBlocking(
                 classificationRequest.requestId,
@@ -595,8 +585,7 @@ export default function CameraScreen() {
             }
           }
 
-          // Undo the resizer's square letterboxing. These boxes now refer to the
-          // correctly oriented camera frame, but not yet the on-screen preview.
+          // Undo letterboxing to restore oriented frame coordinates.
           const frameDetectionResult = mapDetectorDetectionsToFrame(
             detectorSpaceDetections,
             frame.width,
@@ -604,30 +593,28 @@ export default function CameraScreen() {
             frame.orientation,
           );
 
-          // Transfer only small decoded objects across the thread boundary. Camera pixels
-          // and model buffers remain native and never enter React state.
+          // Transfer decoded boxes only; pixels and tensors stay native.
           scheduleOnRN(handleLiveDetectionResult, frameDetectionResult);
         } finally {
-          // The resized GPU allocation is separate from the original camera frame.
+          // Release the resizer's separate GPU allocation.
           resizedFrame.dispose();
         }
       } catch (error) {
         console.error("Live detector pipeline failed:", error);
       } finally {
-        // This also runs for skipped frames and early returns.
+        // Also unlock after skipped frames and early returns.
         frame.dispose();
       }
     },
   });
 
-  // VisionCamera can drive the full-resolution photo path and lightweight live
-  // frame path from the same native camera session.
+  // Use one camera session for live frames and full photos.
   const cameraOutputs = useMemo(
     () => [photoOutput, frameOutput],
     [photoOutput, frameOutput],
   );
 
-  // Successful loading is reflected in the UI; only failures need console output.
+  // The UI already shows successful model loading.
   useEffect(() => {
     if (mobileDetector.state === "error") {
       console.error("Mobile detector unavailable:", mobileDetector.error);
@@ -649,7 +636,7 @@ export default function CameraScreen() {
     }
   }, [liveFrameResizer]);
 
-  // Stop the native camera session while another route is in front of this one.
+  // Stop the camera while another route is open.
   useFocusEffect(
     useCallback(() => {
       setIsCameraActive(true);
@@ -677,7 +664,7 @@ export default function CameraScreen() {
       return;
     }
 
-    // Once permission is permanently denied, only system settings can change it.
+    // Permanent denial can only be changed in system settings.
     await Linking.openSettings();
   }
 
@@ -689,8 +676,7 @@ export default function CameraScreen() {
     setIsScanning(true);
 
     try {
-      // capturePhoto returns a native object whose memory remains owned by the
-      // app until photo.dispose() runs in the nested finally block below.
+      // The captured photo keeps native memory until dispose().
       const photo = await photoOutput.capturePhoto(
         {
           flashMode: "off",
@@ -707,8 +693,7 @@ export default function CameraScreen() {
         const temporaryPhotoUri = `file://${temporaryPhotoPath}`;
         const storedPhotoUri = `${FileSystem.documentDirectory}wanchan-capture-${Date.now()}.jpg`;
 
-        // VisionCamera's temporary file may be reclaimed. Copy it into app
-        // document storage before navigating to the static scan route.
+        // Copy the temporary photo before opening the scan route.
         await FileSystem.copyAsync({
           from: temporaryPhotoUri,
           to: storedPhotoUri,
@@ -726,11 +711,10 @@ export default function CameraScreen() {
           height: photo.height,
         });
 
-        // The scan route prefers server inference and uses these shared mobile
-        // models if the request fails or exceeds its timeout.
+        // The scan route reuses these models for local fallback.
         router.push("/staticScan");
       } finally {
-        // VisionCamera photos retain native memory until explicitly released.
+        // Release the captured photo's native memory.
         photo.dispose();
       }
     } catch (error) {
@@ -821,8 +805,7 @@ export default function CameraScreen() {
     );
   }
 
-  // Device discovery can briefly be empty in release builds, so wait for the
-  // concrete back-camera device before mounting VisionCamera.
+  // Wait for device discovery before mounting VisionCamera.
   if (backCamera === undefined) {
     return (
       <SafeAreaView style={styles.container}>

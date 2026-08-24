@@ -51,8 +51,7 @@ BATCH_LOG_INTERVAL = 50
 EARLY_STOPPING_PATIENCE = 2
 RESUME_FROM_CHECKPOINT = True
 
-# The classifier can adapt faster, while the pretrained feature extractor uses a
-# smaller learning rate to avoid destroying useful ImageNet features.
+# Let the new classifier adapt faster than the pretrained features.
 CLASSIFIER_LEARNING_RATE = 0.00005
 FEATURE_LEARNING_RATE = 0.000005
 WEIGHT_DECAY = 0.01
@@ -173,7 +172,7 @@ def main() -> None:
         model_input_size=MODEL_INPUT_SIZE,
     )
 
-    # A dedicated generator makes the balanced sampling order reproducible.
+    # Keep balanced sampling reproducible.
     sampler_generator = torch.Generator()
     sampler_generator.manual_seed(random_seed)
 
@@ -218,8 +217,7 @@ def main() -> None:
         weights_only=True,
     )
 
-    # Class IDs depend on this exact ordering, so a mismatch would train each
-    # output neuron against the wrong breed.
+    # Reject label ordering that would train the wrong output neurons.
     if tuple(baseline_checkpoint["breed_names"]) != breed_names:
         raise ValueError("Checkpoint breed ordering does not match the current dataset")
 
@@ -232,8 +230,7 @@ def main() -> None:
 
     model.load_state_dict(baseline_checkpoint["model_state_dict"])
 
-    # The factory initially freezes the feature extractor. We then reopen only
-    # its deepest modules, which contain the most task-specific visual features.
+    # Reopen only the deepest task-specific feature modules.
     unfreeze_for_fine_tuning(
         model,
         number_of_feature_modules=NUMBER_OF_FEATURE_MODULES_TO_UNFREEZE,
@@ -249,8 +246,7 @@ def main() -> None:
             -NUMBER_OF_FEATURE_MODULES_TO_UNFREEZE:
         ]
 
-    # Separate parameter groups let AdamW update the classifier and pretrained
-    # feature modules at different learning rates.
+    # Use separate learning rates for new and pretrained parameters.
     classifier_parameter_group = [
         parameter
         for parameter in model.classifier.parameters()
@@ -285,8 +281,7 @@ def main() -> None:
             weight_decay=WEIGHT_DECAY,
         )
 
-    # Reduce both learning rates smoothly after each epoch so later updates
-    # refine the model without moving far from its best pretrained features.
+    # Reduce both learning rates after every epoch.
     learning_rate_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
         optimizer,
         T_max=TOTAL_EPOCHS,
@@ -299,7 +294,7 @@ def main() -> None:
 
     validation_loss_function = nn.CrossEntropyLoss()
 
-    # Mixed precision reduces GPU memory use and generally speeds up CUDA training.
+    # Use mixed precision to reduce CUDA memory use.
     mixed_precision_enabled = device.type == "cuda"
 
     gradient_scaler = torch.amp.GradScaler(
@@ -351,8 +346,7 @@ def main() -> None:
 
         checkpoint_status = f"Resuming fine-tuning after epoch {completed_epoch}"
 
-    # Catch accidentally trainable parameters that were omitted from the
-    # optimizer. Such parameters would receive gradients but never be updated.
+    # Catch trainable parameters missing from the optimizer.
     optimized_parameter_count = sum(
         parameter.numel()
         for parameter in (classifier_parameter_group + feature_parameter_group)
@@ -418,7 +412,7 @@ def main() -> None:
             )
         print(f"Learning rates: {learning_rate_description}")
 
-        # Train on the complete balanced training set.
+        # train on the balanced set
         average_training_loss = train_one_epoch(
             model=model,
             data_loader=training_data_loader,
@@ -432,7 +426,7 @@ def main() -> None:
             cutmix_alpha=CUTMIX_ALPHA,
         )
 
-        # Measure generalization without updating any parameters.
+        # validate without updating parameters
         validation_loss, validation_accuracy = evaluate(
             model=model,
             data_loader=validation_data_loader,
@@ -444,14 +438,13 @@ def main() -> None:
         print(f"Validation loss: {validation_loss:.4f}")
         print(f"Validation accuracy: {validation_accuracy:.2%}")
 
-        # Advance the cosine schedule after completing the current epoch.
+        # advance the cosine schedule
         learning_rate_scheduler.step()
 
         validation_improved = validation_loss < best_validation_loss
         accuracy_improved = validation_accuracy > best_validation_accuracy
 
-        # Continue while either metric finds a better trade-off. Loss measures
-        # confidence quality, while accuracy measures the final class decision.
+        # Keep training while loss or accuracy improves.
         if validation_improved or accuracy_improved:
             epochs_without_metric_improvement = 0
         else:
@@ -481,7 +474,7 @@ def main() -> None:
                 f"{fine_tune_best_loss_checkpoint_path}"
             )
 
-        # Accuracy and loss can favor different epochs, so preserve both.
+        # Keep separate best-loss and best-accuracy checkpoints.
         if accuracy_improved:
             best_validation_accuracy = validation_accuracy
 
@@ -505,7 +498,7 @@ def main() -> None:
                 "Saved new best-accuracy checkpoint: "
                 f"{fine_tune_best_accuracy_checkpoint_path}"
             )
-        # Latest is always saved so an interrupted run can resume.
+        # Always save latest for resume.
         save_training_checkpoint(
             checkpoint_path=fine_tune_latest_checkpoint_path,
             model=model,

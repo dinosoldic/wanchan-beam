@@ -3,9 +3,8 @@ import type {
   LiveDogDetection,
 } from "./decodeMobileDetectorOutput";
 
-// Keep these thresholds aligned with the tested server postprocessor.
-// Every function in this call graph is marked as a Worklet because duplicate
-// suppression executes synchronously on VisionCamera's native frame thread.
+// Keep these thresholds aligned with the server postprocessor.
+// This complete call graph runs on VisionCamera's Worklet thread.
 const DUPLICATE_IOU_THRESHOLD = 0.85;
 const MAX_CENTER_OFFSET_RATIO = 0.15;
 const DUPLICATE_CONTAINMENT_THRESHOLD = 0.98;

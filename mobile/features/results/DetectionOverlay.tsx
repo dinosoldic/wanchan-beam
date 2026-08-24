@@ -33,8 +33,7 @@ const EDGE_PADDING = 6;
 const DOT_SIZE = 9;
 const LINE_THICKNESS = 2;
 
-// Detector crops are less controlled than validation images, so keep a small
-// uncertainty guard without hiding otherwise useful predictions too often.
+// Use a lower threshold for less controlled detector crops.
 const MINIMUM_BREED_CONFIDENCE = 0.34;
 
 function formatBreedLabel(label: string): string {
@@ -114,8 +113,7 @@ function buildDetectionCallouts(
     })
     .sort((first, second) => first.anchorX - second.anchorX);
 
-  // Keep the two sides balanced while assigning leftmost dogs to the left
-  // and rightmost dogs to the right, which minimizes leader-line crossings.
+  // Balance both sides while minimizing line crossings.
   const middleIndex = Math.floor(anchors.length / 2);
   const middleAnchor = anchors[middleIndex];
   const leftGetsExtra =

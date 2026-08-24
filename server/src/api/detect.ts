@@ -54,6 +54,7 @@ const detectRoute: FastifyPluginAsync = async (app) => {
       }
 
       try {
+        // Image decoding still validates the contents instead of trusting MIME.
         const result = await detectDogs(imageBuffer);
 
         return reply.code(200).send(result);

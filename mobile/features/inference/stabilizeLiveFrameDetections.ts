@@ -100,8 +100,7 @@ export function stabilizeLiveFrameDetections(
   previousState: LiveDetectionTrackerState,
   currentResult: LiveFrameDetectionResult,
 ): LiveDetectionTrackerUpdate {
-  // Rotating the output changes its coordinate system, so old tracks cannot
-  // safely be matched against the new frame dimensions.
+  // Reset tracks when rotation changes the coordinate system.
   const frameMatches =
     previousState.frame?.width === currentResult.frame.width &&
     previousState.frame.height === currentResult.frame.height;
@@ -112,8 +111,7 @@ export function stabilizeLiveFrameDetections(
 
   let nextTrackId = previousState.nextTrackId;
 
-  // Greedily keep the ID of the unused previous box with the strongest overlap.
-  // This lightweight position tracker avoids running a second identity model.
+  // Reuse the unmatched track with the strongest overlap.
   for (const detection of currentResult.detections) {
     let bestTrackIndex = -1;
     let bestIoU = MINIMUM_MATCH_IOU;
@@ -171,7 +169,7 @@ export function stabilizeLiveFrameDetections(
     nextTrackId += 1;
   }
 
-  // Keep confirmed tracks briefly when one or two inference frames miss them.
+  // Keep confirmed tracks through short detector misses.
   for (let index = 0; index < previousTracks.length; index += 1) {
     const previousTrack = previousTracks[index];
 

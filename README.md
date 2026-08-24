@@ -115,6 +115,17 @@ wanchan-beam/
 └── LICENSE
 ```
 
+## Documentation
+
+- [Architecture](docs/architecture.md) explains the live and photo pipelines,
+  coordinate systems, model assets, and the main design choices.
+- [Model card](docs/model-card.md) records model inputs, evaluation results,
+  confidence thresholds, parity checks, and known limitations.
+- [API reference](docs/api.md) documents request validation, response fields,
+  coordinate meanings, and error responses.
+- [Android releases](docs/android-releases.md) describes versioning, signing,
+  GitHub Actions, and the release checklist.
+
 ## Run the mobile app
 
 ### Requirements

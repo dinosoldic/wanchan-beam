@@ -9,7 +9,7 @@ import { loadBreedClassifier } from "./loadBreedClassifier.js";
 export async function classifyBreeds(
   crops: readonly Uint8Array[],
 ): Promise<DogBreedPredictions[]> {
-  // Build one dynamic batch so all detected dogs use one ONNX call.
+  // Classify all dog crops in one ONNX batch.
   const tensor = createBreedClassifierTensor(crops);
 
   const { session, labels } = await loadBreedClassifier();

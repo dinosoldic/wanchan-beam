@@ -27,6 +27,7 @@ export async function detectDogs(
 
   formData.append("image", imageFile, "camera-frame.jpg");
 
+  // DetectionService turns this timeout into an on-device fallback.
   const abortController = new AbortController();
   const timeoutId = setTimeout(() => {
     abortController.abort();

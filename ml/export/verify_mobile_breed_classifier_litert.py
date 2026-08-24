@@ -30,7 +30,7 @@ BATCH_SIZE = 64
 # Avoid Docker shared-memory pressure from multiprocessing data loaders.
 NUM_WORKERS = 0
 
-# LiteRT and PyTorch can use different valid floating-point operation orders.
+# Allow small drift from different floating-point operation orders.
 MAXIMUM_ALLOWED_ABSOLUTE_DIFFERENCE = 0.0002
 MAXIMUM_ALLOWED_MEAN_DIFFERENCE = 0.00002
 
@@ -136,8 +136,7 @@ def main() -> None:
             batch_images_numpy = batch_images.numpy()
             litert_logits = np.empty(expected_shape, dtype=np.float32)
 
-            # The mobile model has a fixed batch size of one, so reuse the same
-            # allocated interpreter for each image in this loader batch.
+            # Reuse the fixed batch-one interpreter for each image.
             for example_index in range(batch_size):
                 example_input = np.ascontiguousarray(
                     batch_images_numpy[example_index : example_index + 1],

@@ -111,6 +111,7 @@ function haveAtLeastThreeMatchingEdges(
 export function suppressDuplicateDetections(
   detections: DogDetection[],
 ): DogDetection[] {
+  // Highest confidence wins when two boxes describe the same physical dog.
   const detectionsByConfidence = [...detections].sort(
     (first, second) => second.confidence - first.confidence,
   );

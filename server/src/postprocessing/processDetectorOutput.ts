@@ -88,6 +88,7 @@ export function processDetectorOutput(
       continue;
     }
 
+    // Undo the detector letterbox before returning original image coordinates.
     const x1 = clampToImage(
       (rawX1 - transform.paddingLeft) / transform.scale,
       transform.originalWidth,
