@@ -218,7 +218,7 @@ export default function StaticScanScreen() {
                   pressed && styles.iconButtonPressed,
                 ]}
               >
-                <Ionicons name="download-outline" size={27} color="#FFF8EE" />
+                <Ionicons name="save-outline" size={27} color="#FFF8EE" />
               </Pressable>
 
               <Pressable
