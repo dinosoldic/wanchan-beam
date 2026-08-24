@@ -4,6 +4,7 @@ import { useFocusEffect, useRouter } from "expo-router";
 import { useResizer } from "react-native-vision-camera-resizer";
 import { createSynchronizable, scheduleOnRN } from "react-native-worklets";
 import {
+  AppState,
   Image,
   Linking,
   StyleSheet,
@@ -106,6 +107,9 @@ export default function CameraScreen() {
   const interfaceOrientation = useOrientation("interface");
 
   const [isCameraActive, setIsCameraActive] = useState(false);
+  const [isAppActive, setIsAppActive] = useState(
+    AppState.currentState === "active",
+  );
   const [isCameraReady, setIsCameraReady] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
   const [liveDetectionResult, setLiveDetectionResult] =
@@ -636,6 +640,24 @@ export default function CameraScreen() {
     }
   }, [liveFrameResizer]);
 
+  // Pause the native camera whenever Android backgrounds the app.
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", (nextState) => {
+      const appIsActive = nextState === "active";
+
+      setIsAppActive(appIsActive);
+
+      if (!appIsActive) {
+        setIsCameraReady(false);
+        setLiveDetectionResult(null);
+      }
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, []);
+
   // Stop the camera while another route is open.
   useFocusEffect(
     useCallback(() => {
@@ -831,7 +853,7 @@ export default function CameraScreen() {
         <Camera
           style={styles.camera}
           device={backCamera}
-          isActive={isCameraActive}
+          isActive={isCameraActive && isAppActive}
           outputs={cameraOutputs}
           resizeMode="cover"
           implementationMode="compatible"
